@@ -100,4 +100,20 @@ describe('GeoSpatialIndex point in polygon', () => {
     expect(res.country).toBe('MDA');
     expect(res.region?.countryName).toBe('Молдавия');
   });
+
+  it('matches Katzrin 32.99, 35.69 to El-Quneitra, SYR', () => {
+    const res = index.findDistrictAndRegion(32.99, 35.69);
+    expect(res.region).toBeDefined();
+    expect(res.region?.name).toBe('Эль-Кунейтра');
+    expect(res.country).toBe('SYR');
+    expect(res.region?.countryName).toBe('Сирия');
+  });
+
+  it('verifies all regions have no parentheses in their names', () => {
+    const root = path.resolve(__dirname, '..');
+    const regions = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', 'regions.json'), 'utf8'));
+    for (const f of regions.features) {
+      expect(f.properties.name).not.toMatch(/[()]/);
+    }
+  });
 });

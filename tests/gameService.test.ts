@@ -4,7 +4,10 @@ import {
   calculateRegionXp,
   calculateCountryXp,
   calculateUserLevel,
-  calculateLandCoveragePercent
+  calculateLandCoveragePercent,
+  distanceKm,
+  distanceMultiplier,
+  applyDistanceBonus
 } from '../src/services/gameService';
 
 describe('Game Service XP and Level Calculations', () => {
@@ -51,5 +54,36 @@ describe('Game Service XP and Level Calculations', () => {
     const pct100 = calculateLandCoveragePercent(100);
     expect(pct100).toBeGreaterThan(0);
     expect(pct100).toBeLessThan(1);
+  });
+});
+
+describe('Home distance bonus', () => {
+  const rostov = { lat: 47.23, lon: 39.7 };
+  const murmansk = { lat: 68.97, lon: 33.08 };
+  const krasnodar = { lat: 45.04, lon: 38.98 };
+
+  it('measures great-circle distance', () => {
+    expect(distanceKm(rostov, rostov)).toBe(0);
+    const km = distanceKm(rostov, murmansk);
+    expect(km).toBeGreaterThan(2350);
+    expect(km).toBeLessThan(2500);
+  });
+
+  it('picks multiplier by distance bands', () => {
+    expect(distanceMultiplier(0)).toBe(1);
+    expect(distanceMultiplier(99)).toBe(1);
+    expect(distanceMultiplier(100)).toBe(1.5);
+    expect(distanceMultiplier(499)).toBe(1.5);
+    expect(distanceMultiplier(500)).toBe(2);
+    expect(distanceMultiplier(1999)).toBe(2);
+    expect(distanceMultiplier(2000)).toBe(3);
+  });
+
+  it('applies bonus relative to home and keeps base XP without home', () => {
+    expect(applyDistanceBonus(300, undefined, murmansk)).toBe(300);
+    expect(applyDistanceBonus(300, rostov, rostov)).toBe(300);
+    expect(applyDistanceBonus(300, rostov, krasnodar)).toBe(450);
+    expect(applyDistanceBonus(300, rostov, murmansk)).toBe(900);
+    expect(applyDistanceBonus(300, murmansk, rostov)).toBe(900);
   });
 });

@@ -41,6 +41,37 @@ export function calculateSightXp(tier: number, unesco: boolean): number {
   return 150 * tier + (unesco ? 500 : 0);
 }
 
+export interface GeoPoint {
+  lat: number;
+  lon: number;
+}
+
+export function distanceKm(a: GeoPoint, b: GeoPoint): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+}
+
+export function distanceMultiplier(km: number): number {
+  if (km < 100) return 1;
+  if (km < 500) return 1.5;
+  if (km < 2000) return 2;
+  return 3;
+}
+
+export function homeDistanceBonus(home: GeoPoint | undefined, target: GeoPoint | undefined): { km: number; multiplier: number } | undefined {
+  if (!home || !target) return undefined;
+  const km = distanceKm(home, target);
+  return { km, multiplier: distanceMultiplier(km) };
+}
+
+export function applyDistanceBonus(xp: number, home: GeoPoint | undefined, target: GeoPoint | undefined): number {
+  const bonus = homeDistanceBonus(home, target);
+  return bonus ? Math.round(xp * bonus.multiplier) : xp;
+}
+
 export function calculateUserLevel(totalXp: number): UserLevelInfo {
   let currentRank = RANKS[0];
   let nextRank = RANKS[1];

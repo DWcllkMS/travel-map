@@ -9,7 +9,8 @@ import { SightSheet, type SelectedSightEntity } from './SightSheet';
 import { PhotoDetailModal } from './PhotoDetailModal';
 import { globalGeoIndex } from '../services/geoIndex';
 import { globalSightsIndex } from '../services/sightsIndex';
-import { db } from '../services/db';
+import { db, updateSettings } from '../services/db';
+import { homeDistanceBonus } from '../services/gameService';
 import type { UserLevelInfo, PhotoRecord, ThumbnailRecord, MarkRecord, GeoDistrict, GeoRegion, ProofLevel, GameContext } from '../types';
 
 interface MapViewProps {
@@ -19,6 +20,7 @@ interface MapViewProps {
   marks: MarkRecord[];
   geoReady: boolean;
   gameContext?: GameContext;
+  homeRegionId?: string;
   onOpenLevelDetails?: () => void;
   pickLocationMode?: boolean;
   onLocationPicked?: (loc: { lat: number; lon: number; district?: GeoDistrict; region?: GeoRegion }) => void;
@@ -31,6 +33,7 @@ export const MapView: React.FC<MapViewProps> = ({
   marks,
   geoReady,
   gameContext,
+  homeRegionId,
   onOpenLevelDetails,
   pickLocationMode,
   onLocationPicked
@@ -69,6 +72,12 @@ export const MapView: React.FC<MapViewProps> = ({
 
   const marksRef = useRef(marks);
   marksRef.current = marks;
+
+  const homeRegionIdRef = useRef(homeRegionId);
+  homeRegionIdRef.current = homeRegionId;
+
+  const getHomePoint = () =>
+    homeRegionIdRef.current ? globalGeoIndex.getRegionCenter(homeRegionIdRef.current) : undefined;
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -393,7 +402,10 @@ export const MapView: React.FC<MapViewProps> = ({
       countryName,
       isVisited: visited,
       firstVisitedDate: firstDate,
-      isWishlist: wishlist
+      isWishlist: wishlist,
+      distanceBonus: sight.regionId === homeRegionIdRef.current
+        ? undefined
+        : homeDistanceBonus(getHomePoint(), { lat: sight.lat, lon: sight.lon })
     });
   };
 
@@ -428,7 +440,9 @@ export const MapView: React.FC<MapViewProps> = ({
     let isVisited = false;
     let proofLevel: ProofLevel | undefined;
     let isWishlist = currentMarks.some(m => m.targetId === targetId && m.markType === 'wishlist');
-    let isHome = currentMarks.some(m => m.targetId === (matchedRegion?.id) && m.markType === 'home');
+    const isHome = !!matchedRegion && matchedRegion.id === homeRegionIdRef.current;
+    const targetCenter = district ? globalGeoIndex.getDistrictCenter(district.id) : (matchedRegion ? globalGeoIndex.getRegionCenter(matchedRegion.id) : undefined);
+    const distanceBonus = isHome ? undefined : homeDistanceBonus(getHomePoint(), targetCenter);
 
     const matchingPhotos = currentPhotos.filter(p => district ? p.districtId === district.id : p.regionId === matchedRegion?.id);
     if (matchingPhotos.length > 0) {
@@ -470,6 +484,7 @@ export const MapView: React.FC<MapViewProps> = ({
       proofLevel,
       isWishlist,
       isHome,
+      distanceBonus,
       districtProgress,
       thumbnails: thumbs
     });
@@ -524,15 +539,8 @@ export const MapView: React.FC<MapViewProps> = ({
     const regId = selectedEntity.region.id;
 
     await db.marks.where({ markType: 'home' }).delete();
-    await db.marks.put({
-      id: `mark-home-${regId}`,
-      targetId: regId,
-      targetType: 'region',
-      markType: 'home',
-      createdAt: new Date().toISOString(),
-      country: selectedEntity.region.country
-    });
-    setSelectedEntity({ ...selectedEntity, isHome: true });
+    await updateSettings({ homeRegionId: regId });
+    setSelectedEntity({ ...selectedEntity, isHome: true, distanceBonus: undefined });
   };
 
   return (

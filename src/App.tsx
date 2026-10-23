@@ -18,6 +18,8 @@ import {
   calculateRegionXp,
   calculateCountryXp,
   calculateSightXp,
+  applyDistanceBonus,
+  homeDistanceBonus,
   calculateUserLevel,
   evaluateAchievements,
   calculateLandCoveragePercent
@@ -291,8 +293,17 @@ export const App: React.FC = () => {
     }
   }, [gameContext, dataLoaded]);
 
+  const homeRegionId = settings.homeRegionId || marks.find(m => m.markType === 'home')?.targetId || '';
+
+  const homePoint = useMemo(
+    () => (homeRegionId && dataLoaded ? globalGeoIndex.getRegionCenter(homeRegionId) : undefined),
+    [homeRegionId, dataLoaded]
+  );
+
   const levelInfo: UserLevelInfo = useMemo(() => {
     let totalXp = 0;
+    const awayPoint = (regionId: string | undefined, point: { lat: number; lon: number } | undefined) =>
+      regionId && regionId === homeRegionId ? undefined : point;
 
     const manualDistrictMarks = new Set<string>();
     const manualRegionMarks = new Set<string>();
@@ -322,14 +333,14 @@ export const App: React.FC = () => {
     for (const dId of photoDistrictIds) {
       const d = districtById.get(dId);
       const rarity = d ? d.rarity : 1;
-      totalXp += calculateDistrictXp(rarity, 'gold');
+      totalXp += applyDistanceBonus(calculateDistrictXp(rarity, 'gold'), homePoint, awayPoint(d?.regionId, globalGeoIndex.getDistrictCenter(dId)));
     }
 
     for (const dId of manualDistrictMarks) {
       if (!photoDistrictIds.has(dId)) {
         const d = districtById.get(dId);
         const rarity = d ? d.rarity : 1;
-        totalXp += calculateDistrictXp(rarity, 'bronze');
+        totalXp += applyDistanceBonus(calculateDistrictXp(rarity, 'bronze'), homePoint, awayPoint(d?.regionId, globalGeoIndex.getDistrictCenter(dId)));
       }
     }
 
@@ -339,14 +350,14 @@ export const App: React.FC = () => {
     for (const rId of photoRegionIds) {
       const r = regionById.get(rId);
       const rarity = r ? r.rarity : 1;
-      totalXp += calculateRegionXp(rarity, 'gold');
+      totalXp += applyDistanceBonus(calculateRegionXp(rarity, 'gold'), homePoint, awayPoint(rId, globalGeoIndex.getRegionCenter(rId)));
     }
 
     for (const rId of manualRegionMarks) {
       if (!photoRegionIds.has(rId)) {
         const r = regionById.get(rId);
         const rarity = r ? r.rarity : 1;
-        totalXp += calculateRegionXp(rarity, 'bronze');
+        totalXp += applyDistanceBonus(calculateRegionXp(rarity, 'bronze'), homePoint, awayPoint(rId, globalGeoIndex.getRegionCenter(rId)));
       }
     }
 
@@ -364,12 +375,12 @@ export const App: React.FC = () => {
     for (const sId of visitedSightIds) {
       const s = globalSightsIndex.getById(sId);
       if (s) {
-        totalXp += calculateSightXp(s.tier, s.unesco);
+        totalXp += applyDistanceBonus(calculateSightXp(s.tier, s.unesco), homePoint, awayPoint(s.regionId, { lat: s.lat, lon: s.lon }));
       }
     }
 
     return calculateUserLevel(totalXp);
-  }, [photos, marks, unlockedAchievements, settings.includeManualInStats, dataLoaded]);
+  }, [photos, marks, unlockedAchievements, settings.includeManualInStats, dataLoaded, homePoint, homeRegionId]);
 
   const stats: StatsInfo = useMemo(() => {
     const allRegions = globalGeoIndex.getAllRegions();
@@ -427,23 +438,30 @@ export const App: React.FC = () => {
 
     return wishMarks.map(m => {
       let name = m.targetId;
+      let point: { lat: number; lon: number } | undefined;
       if (m.targetType === 'district') {
         const d = dMap.get(m.targetId);
         if (d) name = d.name;
+        point = globalGeoIndex.getDistrictCenter(m.targetId);
       } else if (m.targetType === 'region') {
         const r = rMap.get(m.targetId);
         if (r) name = r.name;
+        point = globalGeoIndex.getRegionCenter(m.targetId);
       } else if (m.targetType === 'sight') {
         const s = globalSightsIndex.getById(m.targetId);
-        if (s) name = s.name;
+        if (s) {
+          name = s.name;
+          point = { lat: s.lat, lon: s.lon };
+        }
       }
+      const bonus = homeDistanceBonus(homePoint, point);
       return {
         mark: m,
         name,
-        distanceKm: undefined
+        distanceKm: bonus ? Math.round(bonus.km) : undefined
       };
     });
-  }, [marks, dataLoaded]);
+  }, [marks, dataLoaded, homePoint]);
 
   const handleUpdateSettings = async (partial: Partial<UserSettings>) => {
     await updateSettings(partial);
@@ -572,6 +590,7 @@ export const App: React.FC = () => {
             marks={marks}
             geoReady={dataLoaded}
             gameContext={gameContext}
+            homeRegionId={homeRegionId}
             onOpenLevelDetails={() => setActiveTab('achievements')}
             pickLocationMode={pickLocationMode}
             onLocationPicked={handleLocationPicked}

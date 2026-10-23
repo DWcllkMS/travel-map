@@ -18,6 +18,8 @@ export interface GeoRegion {
   countryName: string;
   area: number;
   rarity: RarityLevel;
+  labelX?: number;
+  labelY?: number;
 }
 
 export interface GeoCountry {

@@ -111,7 +111,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <h3 className="section-title" style={{ margin: 0 }}>Домашний регион</h3>
           </div>
           <p className="section-desc">
-            Используется для расчёта расстояний до точек из твоего вишлиста.
+            От него считается бонус к опыту: до 100 км — ×1, 100–500 км — ×1,5, 500–2000 км — ×2, дальше — ×3.
+            И расстояния до точек из твоего вишлиста.
           </p>
           <select
             className="home-select"

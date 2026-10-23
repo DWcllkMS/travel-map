@@ -145,6 +145,18 @@ describe('Sights Data & Integrity', () => {
     const totalOthers = sightsRaw.features.filter((f: any) => f.properties.kind === 'other');
     expect(totalOthers.length / sightsRaw.features.length).toBeLessThanOrEqual(0.05);
   });
+
+  it('verifies tier 4 share is at most 6% and ordinary lakes are not tier 4', () => {
+    const tier4Features = sightsRaw.features.filter((f: any) => f.properties.tier === 4);
+    const tier4Share = tier4Features.length / sightsRaw.features.length;
+    expect(tier4Share).toBeLessThanOrEqual(0.06);
+
+    const khanka = sightsRaw.features.find((f: any) => f.properties.name === 'Ханка');
+    if (khanka) expect(khanka.properties.tier).toBeLessThan(4);
+
+    const ilmen = sightsRaw.features.find((f: any) => f.properties.name === 'Ильмень');
+    if (ilmen) expect(ilmen.properties.tier).toBeLessThan(4);
+  });
 });
 
 describe('Sights Spatial Index & Photo Matching', () => {

@@ -11,7 +11,11 @@ import turfBooleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import turfPointOnFeature from '@turf/point-on-feature';
 import turfDifference from '@turf/difference';
 import turfIntersect from '@turf/intersect';
+import polygonClipping from 'polygon-clipping';
 import Flatbush from 'flatbush';
+
+const intersect = turfIntersect.default || turfIntersect;
+const difference = turfDifference.default || turfDifference;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
@@ -137,8 +141,8 @@ const SPECIAL_OVERRIDES = {
 
   'MDA-1628': 'Приднестровье',
   'MDA-1645': 'Рыбницкий район',
-  'ARE-344': 'Нейтральная зона (Фуджейра)',
-  'ARE-347': 'Нейтральная зона (Сайх-Мудайра)',
+  'ARE-344': 'Нейтральная зона Фуджейры',
+  'ARE-347': 'Нейтральная зона Сайх-Мудайра',
   'MDG-5864': 'Андруа',
   'ASM-4998': 'Восточный район',
   'ASM-4999': 'Острова Мануа',
@@ -240,7 +244,7 @@ const SPECIAL_OVERRIDES = {
   'IRL-724': 'Северный Типперэри',
   'IRL-5572': 'Южный Типперэри',
 
-  'GBR-2108': 'Халтон (приход)',
+  'GBR-2108': 'Приход Халтон',
   'GBR-5708': 'Халтон',
 
   'TTO-50': 'Восточный Тобаго',
@@ -255,7 +259,7 @@ const SPECIAL_OVERRIDES = {
   'SYC-5210': 'Гранд-Анс-Маэ',
   'SYC-5211': 'Гранд-Анс-Праслен',
 
-  'YEM-3496': 'Сана (мухафаза)',
+  'YEM-3496': 'Мухафаза Сана',
   'YEM-3498': 'Сана',
 
   'AFG-1752': 'Урузган',
@@ -477,15 +481,30 @@ async function buildData(targetCountries = ['RUS']) {
     };
   }
 
+  const syr145 = rawFeatures.find(f => f.properties.adm1_code === 'SYR-145');
+  const syr5261 = rawFeatures.find(f => f.properties.adm1_code === 'SYR-5261');
+  if (syr145 && syr5261) {
+    delete syr145.bbox;
+    delete syr5261.bbox;
+    syr145.geometry = {
+      type: 'MultiPolygon',
+      coordinates: polygonClipping.union(
+        toMultiPolygonCoords(syr145.geometry),
+        toMultiPolygonCoords(syr5261.geometry)
+      )
+    };
+  }
+
   const processedList = [];
   const rusNamelessFragments = [];
 
   for (const f of rawFeatures) {
+    delete f.bbox;
     const p = f.properties;
     let id = p.adm1_code || p.iso_3166_2 || p.code_hasc;
     let country = p.adm0_a3 || p.iso_a2;
 
-    if (id === 'MDA-1650' || id === 'MDA-1638') {
+    if (id === 'MDA-1650' || id === 'MDA-1638' || id === 'SYR-5261') {
       continue;
     }
 
@@ -627,6 +646,73 @@ async function buildData(targetCountries = ['RUS']) {
     });
   }
 
+  for (const item of processedList) {
+    if (item.country === 'RUS' || item.country === 'ABK' || item.country === 'SOS') continue;
+    if (['RUS-283', 'RUS-5482', 'RUS-DNR', 'RUS-LNR', 'RUS-ZPR', 'RUS-KHS'].includes(item.id)) continue;
+
+    const b = getBBox(item.feature);
+    const candIndices = c0Index.search(b[0], b[1], b[2], b[3]);
+
+    for (const idx of candIndices) {
+      const cf = c0Features[idx];
+      if (!cf.id || cf.id === '-99' || cf.id === item.country || cf.id === 'BRT' || cf.id === 'B37') continue;
+
+      let inter = null;
+      try {
+        inter = intersect(item.feature, cf);
+      } catch {}
+
+      if (!inter) continue;
+      const areaKm2 = Math.round(turfArea(inter) / 1e6);
+      if (areaKm2 < 50) continue;
+
+      const candTargets = processedList.filter(r => r.country === cf.id && r.id !== item.id);
+      if (candTargets.length === 0) continue;
+
+      let target = null;
+      let cutCentroid;
+      try {
+        cutCentroid = turfCentroid(inter);
+      } catch {
+        cutCentroid = turfPointOnFeature(inter);
+      }
+
+      let minDist = Infinity;
+      for (const cand of candTargets) {
+        let d = Infinity;
+        try {
+          const candCentroid = turfCentroid(cand.feature);
+          d = turfDistance(cutCentroid, candCentroid);
+        } catch {}
+        if (d < minDist) {
+          minDist = d;
+          target = cand;
+        }
+      }
+
+      if (!target) continue;
+
+      let diff = null;
+      try {
+        diff = difference(turfHelpers.featureCollection([item.feature, inter]));
+      } catch {}
+
+      if (diff) {
+        item.feature.geometry = diff.geometry;
+        delete item.feature.bbox;
+        target.feature.geometry = {
+          type: 'MultiPolygon',
+          coordinates: polygonClipping.union(
+            toMultiPolygonCoords(target.feature.geometry),
+            toMultiPolygonCoords(inter.geometry)
+          )
+        };
+        delete target.feature.bbox;
+        console.log(`Transferred ${areaKm2} km2 from ${item.id} (${item.country}) to ${target.id} (${target.country})`);
+      }
+    }
+  }
+
   const byCountry = new Map();
   for (const item of processedList) {
     if (!byCountry.has(item.country)) byCountry.set(item.country, []);
@@ -652,6 +738,7 @@ async function buildData(targetCountries = ['RUS']) {
       } else {
         item.finalName = item.cleanName;
       }
+      item.finalName = item.finalName.replace(/\s*\([^)]*\)/g, '').trim();
       item.finalName = item.finalName.charAt(0).toUpperCase() + item.finalName.slice(1);
     }
   }
@@ -1130,6 +1217,7 @@ out center tags;`;
     if (/[a-zA-Z]/.test(n)) throw new Error(`Latin in region name: ${p.id} "${n}"`);
     if (/[\u0300-\u036f]/.test(n)) throw new Error(`Accent mark in region name: ${p.id} "${n}"`);
     if (/^[а-яё]/.test(n)) throw new Error(`Lowercase first letter in region name: ${p.id} "${n}"`);
+    if (/[()]/.test(n)) throw new Error(`Parentheses in region name: ${p.id} "${n}"`);
 
     if (!countryMap.has(p.country)) throw new Error(`Region ${p.id} has country ${p.country} not found in countries.json`);
     if (/[a-zA-Z]/.test(p.countryName || '')) throw new Error(`Latin in region countryName: ${p.id} "${p.countryName}"`);
@@ -1181,6 +1269,12 @@ out center tags;`;
   const regTiraspol = regionsData.features.find(f => turfBooleanPointInPolygon(ptTiraspol, f));
   if (!regTiraspol || regTiraspol.properties.country !== 'MDA' || regTiraspol.properties.name !== 'Приднестровье') {
     throw new Error(`Tiraspol point validation failed: ${regTiraspol?.properties.name} (${regTiraspol?.properties.country})`);
+  }
+
+  const ptKatzrin = turfHelpers.point([35.69, 32.99]);
+  const regKatzrin = regionsData.features.find(f => turfBooleanPointInPolygon(ptKatzrin, f));
+  if (!regKatzrin || regKatzrin.properties.country !== 'SYR' || regKatzrin.properties.name !== 'Эль-Кунейтра') {
+    throw new Error(`Katzrin point validation failed: ${regKatzrin?.properties.name} (${regKatzrin?.properties.country})`);
   }
 
   const meta = {

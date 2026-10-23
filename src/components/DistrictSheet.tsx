@@ -10,6 +10,7 @@ export interface SelectedEntity {
   proofLevel?: ProofLevel;
   isWishlist: boolean;
   isHome: boolean;
+  distanceBonus?: { km: number; multiplier: number };
   districtProgress?: { visited: number; total: number };
   thumbnails: ThumbnailRecord[];
 }
@@ -89,6 +90,12 @@ export const DistrictSheet: React.FC<DistrictSheetProps> = ({
 
           {entity.isHome && (
             <span className="badge home-badge">Домашний регион</span>
+          )}
+
+          {!entity.isHome && entity.distanceBonus && entity.distanceBonus.multiplier > 1 && (
+            <span className="badge distance-badge">
+              Опыт ×{entity.distanceBonus.multiplier.toLocaleString('ru-RU')} · {Math.round(entity.distanceBonus.km).toLocaleString('ru-RU')} км от дома
+            </span>
           )}
 
           {area > 0 && (
@@ -290,6 +297,12 @@ export const DistrictSheet: React.FC<DistrictSheetProps> = ({
           background: var(--bg-3);
           color: var(--text);
           border-color: var(--text);
+        }
+
+        .distance-badge {
+          background: color-mix(in srgb, var(--accent) 12%, transparent);
+          color: var(--accent);
+          border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
         }
 
         .home-badge {

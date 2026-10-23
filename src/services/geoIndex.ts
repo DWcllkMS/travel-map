@@ -146,7 +146,9 @@ export class GeoSpatialIndex {
         country: f.properties.country,
         countryName: f.properties.countryName,
         area: f.properties.area || 0,
-        rarity: f.properties.rarity || 1
+        rarity: f.properties.rarity || 1,
+        labelX: f.properties.labelX,
+        labelY: f.properties.labelY
       }
     }));
 
@@ -288,6 +290,24 @@ export class GeoSpatialIndex {
 
   getCountryById(id: string): GeoCountry | undefined {
     return this.countryById.get(id);
+  }
+
+  getRegionCenter(regionId: string): { lat: number; lon: number } | undefined {
+    const r = this.regionById.get(regionId);
+    if (r && r.labelX !== undefined && r.labelY !== undefined) {
+      return { lat: r.labelY, lon: r.labelX };
+    }
+    const idx = this.regionFeatures.findIndex(f => f.properties.id === regionId);
+    if (idx < 0) return undefined;
+    const [minX, minY, maxX, maxY] = this.regionBBoxes[idx];
+    return { lat: (minY + maxY) / 2, lon: (minX + maxX) / 2 };
+  }
+
+  getDistrictCenter(districtId: string): { lat: number; lon: number } | undefined {
+    const idx = this.districtFeatures.findIndex(f => f.properties.id === districtId);
+    if (idx < 0) return undefined;
+    const [minX, minY, maxX, maxY] = this.districtBBoxes[idx];
+    return { lat: (minY + maxY) / 2, lon: (minX + maxX) / 2 };
   }
 
   getDistrictCountByRegionId(regionId: string): number {

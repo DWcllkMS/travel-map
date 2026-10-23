@@ -298,6 +298,21 @@ SELECT ?item ?name ?coord ?sitelinks ?image ?type WHERE {
 }
 `;
 
+const newRegionsSparql = `
+SELECT ?item ?name ?coord ?sitelinks ?image ?type WHERE {
+  VALUES ?adm { wd:Q171965 wd:Q114331448 wd:Q163271 wd:Q114331288 }
+  VALUES ?type { wd:Q33506 wd:Q16970 wd:Q2977 wd:Q44613 wd:Q4989906 wd:Q5003624 wd:Q23397 wd:Q46169 wd:Q179049 wd:Q23790 wd:Q8502 wd:Q23413 wd:Q16560 wd:Q879050 wd:Q263274 wd:Q39715 wd:Q23442 wd:Q207524 wd:Q570116 wd:Q34038 wd:Q35509 }
+  ?item (wdt:P131*|wdt:P276*) ?adm;
+        wdt:P31 ?type;
+        wdt:P625 ?coord;
+        wikibase:sitelinks ?sitelinks;
+        rdfs:label ?name.
+  FILTER(LANG(?name) = "ru")
+  FILTER(?sitelinks >= 1)
+  OPTIONAL { ?item wdt:P18 ?image. }
+}
+`;
+
 const wikiTitlesSparql = `
 SELECT ?item ?wiki WHERE {
   ?item wdt:P17 wd:Q159;
@@ -554,6 +569,7 @@ SELECT ?item ?name ?coord ?sitelinks ?image WHERE {
   await querySparqlCached(admSparql, 'rus_adm_nao_eao.json');
   await querySparqlCached(magadanSparql, 'rus_magadan.json');
   await querySparqlCached(eaoSparql, 'rus_eao.json');
+  await querySparqlCached(newRegionsSparql, 'rus_lnr_khs.json');
   await querySparqlCached(wikiTitlesSparql, 'wiki_titles.json');
 
   const regionsData = JSON.parse(fs.readFileSync(regionsPath, 'utf8'));
@@ -600,15 +616,21 @@ SELECT ?item ?name ?coord ?sitelinks ?image WHERE {
     if (nearCandidates.length > 0) {
       let bestDist = Infinity;
       let bestFeat = null;
-      for (const idx of nearCandidates) {
-        const bbox = regionBBoxes[idx];
-        const cx = (bbox[0] + bbox[2]) / 2;
-        const cy = (bbox[1] + bbox[3]) / 2;
-        const d = Math.hypot(lon - cx, lat - cy);
-        if (d < bestDist) {
-          bestDist = d;
-          bestFeat = regionsData.features[idx];
+      const kx = Math.cos((lat * Math.PI) / 180);
+      const walk = (coords, feat) => {
+        if (typeof coords[0] === 'number') {
+          const d = Math.hypot((coords[0] - lon) * kx, coords[1] - lat);
+          if (d < bestDist) {
+            bestDist = d;
+            bestFeat = feat;
+          }
+          return;
         }
+        for (const c of coords) walk(c, feat);
+      };
+      for (const idx of nearCandidates) {
+        const feat = regionsData.features[idx];
+        walk(feat.geometry.coordinates, feat);
       }
       if (bestFeat) return bestFeat.properties;
     }
@@ -726,7 +748,7 @@ SELECT ?item ?name ?coord ?sitelinks ?image WHERE {
 
       if (RUSSIAN_UNESCO_KINDS[qid]) kind = RUSSIAN_UNESCO_KINDS[qid];
 
-      if (['rus_sw_border', 'rus_adm_nao_eao', 'rus_magadan', 'rus_eao'].includes(base) && kind === 'other') {
+      if (['rus_sw_border', 'rus_adm_nao_eao', 'rus_magadan', 'rus_eao', 'rus_lnr_khs'].includes(base) && kind === 'other') {
         continue;
       }
 
@@ -952,10 +974,17 @@ SELECT ?item ?name ?coord ?sitelinks ?image WHERE {
     }
   }
 
+  const allSitelinks = finalSights.map(s => s.sitelinks || 0).sort((a, b) => b - a);
+  const p95Index = Math.floor(finalSights.length * 0.05);
+  let tier4Threshold = allSitelinks[p95Index];
+  if (finalSights.filter(s => (s.sitelinks || 0) >= tier4Threshold).length / finalSights.length > 0.052) {
+    tier4Threshold++;
+  }
+
   const features = finalSights.map(s => {
     const sitelinks = s.sitelinks || 0;
     let tier = 1;
-    if (sitelinks >= 50) tier = 4;
+    if (sitelinks >= tier4Threshold) tier = 4;
     else if (sitelinks >= 20) tier = 3;
     else if (sitelinks >= 8) tier = 2;
 
@@ -1068,6 +1097,11 @@ SELECT ?item ?name ?coord ?sitelinks ?image WHERE {
 
   if (rusOthers.length > 0) {
     throw new Error(`Russian sights must not have 'other' kind, but found: ${rusOthers.length}`);
+  }
+
+  const tier4Share = tierCounts[4] / features.length;
+  if (tier4Share > 0.06) {
+    throw new Error(`Tier 4 share exceeds 6%: ${(tier4Share * 100).toFixed(2)}%`);
   }
 
   if ((totalOthers.length / features.length) > 0.05) {

@@ -9,6 +9,7 @@ export interface SelectedSightEntity {
   isVisited: boolean;
   firstVisitedDate?: string;
   isWishlist: boolean;
+  distanceBonus?: { km: number; multiplier: number };
 }
 
 interface SightSheetProps {
@@ -42,7 +43,8 @@ export const SightSheet: React.FC<SightSheetProps> = ({
   if (!entity) return null;
   const { sight } = entity;
 
-  const xpValue = 150 * sight.tier + (sight.unesco ? 500 : 0);
+  const multiplier = entity.distanceBonus?.multiplier ?? 1;
+  const xpValue = Math.round((150 * sight.tier + (sight.unesco ? 500 : 0)) * multiplier);
   const kindTitle = KIND_NAMES[sight.kind] || 'Достопримечательность';
   const locationSubtitle = [entity.regionName, entity.countryName || sight.country].filter(Boolean).join(', ');
 
@@ -90,6 +92,12 @@ export const SightSheet: React.FC<SightSheetProps> = ({
           <span className="badge xp-badge">
             +{xpValue} XP
           </span>
+
+          {entity.distanceBonus && multiplier > 1 && (
+            <span className="badge xp-badge">
+              ×{multiplier.toLocaleString('ru-RU')} · {Math.round(entity.distanceBonus.km).toLocaleString('ru-RU')} км от дома
+            </span>
+          )}
 
           {entity.isVisited ? (
             <span className="badge status-visited-badge">
