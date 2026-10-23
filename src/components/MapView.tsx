@@ -207,9 +207,10 @@ export const MapView: React.FC<MapViewProps> = ({
     });
 
     return () => {
+      if (applyFrame) cancelAnimationFrame(applyFrame);
+      mapRef.current = null;
       fog.detach();
       map.remove();
-      mapRef.current = null;
       fogRef.current = null;
       (window as any).__map = null;
     };
@@ -231,7 +232,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
   const applyLayerVisibility = () => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !map.style) return;
     const current = filtersRef.current;
 
     const setVis = (layerId: string, visible: boolean) => {
@@ -276,7 +277,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
   const updatePhotosGeoJson = () => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !map.style) return;
 
     const source = map.getSource('photosSource') as GeoJSONSource | undefined;
     if (!source) return;
@@ -305,7 +306,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
   const updateMapFeatureStates = () => {
     const map = mapRef.current;
-    if (!map || !map.getSource('regionsSource') || !map.getSource('districtsSource')) return;
+    if (!map || !map.style || !map.getSource('regionsSource') || !map.getSource('districtsSource')) return;
 
     const visitedDistrictsMap = new Map<string, ProofLevel>();
     const visitedRegionsMap = new Map<string, ProofLevel>();
