@@ -600,6 +600,7 @@ export const App: React.FC = () => {
         {activeTab === 'upload' && (
           <div className="tab-page active-page">
             <UploadView
+              geoReady={dataLoaded}
               onImportDone={refreshDbData}
               onRequestSilverVerification={handleRequestSilver}
             />

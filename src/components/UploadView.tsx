@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { UploadCloud, Award, AlertTriangle, Image as ImageIcon } from 'lucide-react';
-import { extractPhotoMetadata } from '../services/exif';
+import { extractPhotoMetadata, withTimeout } from '../services/exif';
 import { parseMp4File } from '../services/videoParser';
 import { computeGroupKey } from '../services/previewGrouper';
 import { latLngToCell } from 'h3-js';
@@ -17,12 +17,28 @@ interface ContestedItem {
   selectedDistrictId?: string;
 }
 
+interface FailedFile {
+  name: string;
+  reason: string;
+}
+
+function describeError(err: unknown): string {
+  if (err instanceof Error) {
+    if (err.name === 'NotReadableError') return 'Телефон не дал прочитать файл — попробуй выбрать его через «Файлы», а не через галерею';
+    if (err.name === 'QuotaExceededError') return 'Закончилось место для данных сайта в браузере';
+    return err.message || err.name;
+  }
+  return String(err);
+}
+
 interface UploadViewProps {
+  geoReady: boolean;
   onImportDone: () => void;
   onRequestSilverVerification: (photo: UnlocatedPhotoItem) => void;
 }
 
 export const UploadView: React.FC<UploadViewProps> = ({
+  geoReady,
   onImportDone,
   onRequestSilverVerification
 }) => {
@@ -31,6 +47,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [contestedList, setContestedList] = useState<ContestedItem[]>([]);
   const [unlocatedList, setUnlocatedList] = useState<UnlocatedPhotoItem[]>([]);
+  const [failedFiles, setFailedFiles] = useState<FailedFile[]>([]);
+  const [fatalError, setFatalError] = useState<string | null>(null);
   const [importSummary, setImportSummary] = useState<{
     total: number;
     withGps: number;
@@ -56,24 +74,18 @@ export const UploadView: React.FC<UploadViewProps> = ({
     let thumbUrl: string | undefined;
 
     if (isVideo) {
-      try {
-        const meta = await parseMp4File(file);
-        lat = meta.lat;
-        lon = meta.lon;
-        alt = meta.alt;
-        takenAt = meta.takenAt;
-      } catch {
-      }
+      const meta = await withTimeout(parseMp4File(file), 20000, 'Чтение видео');
+      lat = meta.lat;
+      lon = meta.lon;
+      alt = meta.alt;
+      takenAt = meta.takenAt;
     } else {
-      try {
-        const meta = await extractPhotoMetadata(file);
-        lat = meta.lat;
-        lon = meta.lon;
-        alt = meta.alt;
-        takenAt = meta.takenAt;
-        thumbUrl = meta.thumbnailDataUrl;
-      } catch {
-      }
+      const meta = await extractPhotoMetadata(file);
+      lat = meta.lat;
+      lon = meta.lon;
+      alt = meta.alt;
+      takenAt = meta.takenAt;
+      thumbUrl = meta.thumbnailDataUrl;
     }
 
     if (!takenAt) {
@@ -152,6 +164,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setContestedList([]);
     setUnlocatedList([]);
     setImportSummary(null);
+    setFailedFiles([]);
+    setFatalError(null);
 
     const totalFiles = files.length;
     setProgress({ current: 0, total: totalFiles });
@@ -161,57 +175,71 @@ export const UploadView: React.FC<UploadViewProps> = ({
     const pendingThumbs: ThumbnailRecord[] = [];
     const pendingUnlocated: UnlocatedPhotoItem[] = [];
     const pendingContested: ContestedItem[] = [];
+    const failed: FailedFile[] = [];
+    let done = 0;
 
-    const CONCURRENCY = 6;
+    const CONCURRENCY = 4;
     let nextIndex = 0;
 
     const runWorker = async () => {
       while (nextIndex < totalFiles) {
         const idx = nextIndex++;
         const file = files[idx];
-        await processFile(
-          file,
-          idx,
-          seenGroupKeys,
-          pendingPhotos,
-          pendingThumbs,
-          pendingUnlocated,
-          pendingContested
-        );
-        if (idx % 10 === 0 || idx === totalFiles - 1) {
-          setProgress({ current: idx + 1, total: totalFiles });
+        try {
+          await processFile(
+            file,
+            idx,
+            seenGroupKeys,
+            pendingPhotos,
+            pendingThumbs,
+            pendingUnlocated,
+            pendingContested
+          );
+        } catch (err) {
+          failed.push({ name: file.name, reason: describeError(err) });
         }
+        done++;
+        setProgress({ current: done, total: totalFiles });
       }
     };
 
-    const workers = Array.from({ length: Math.min(CONCURRENCY, totalFiles) }, () => runWorker());
-    await Promise.all(workers);
+    try {
+      const workers = Array.from({ length: Math.min(CONCURRENCY, totalFiles) }, () => runWorker());
+      await Promise.all(workers);
 
-    await db.transaction('rw', [db.photos, db.thumbs], async () => {
-      if (pendingThumbs.length > 0) {
-        await db.thumbs.bulkPut(pendingThumbs);
+      await withTimeout(
+        db.transaction('rw', [db.photos, db.thumbs], async () => {
+          if (pendingThumbs.length > 0) {
+            await db.thumbs.bulkPut(pendingThumbs);
+          }
+          if (pendingPhotos.length > 0) {
+            await db.photos.bulkPut(pendingPhotos);
+          }
+        }),
+        30000,
+        'Сохранение в память браузера'
+      );
+
+      setContestedList(pendingContested);
+      setUnlocatedList(pendingUnlocated);
+      setImportSummary({
+        total: totalFiles,
+        withGps: pendingPhotos.length,
+        withoutGps: pendingUnlocated.length,
+        contested: pendingContested.length,
+        newThumbs: pendingThumbs.length
+      });
+      onImportDone();
+    } catch (err) {
+      setFatalError(describeError(err));
+    } finally {
+      setFailedFiles(failed);
+      setProcessing(false);
+      setProgress(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
       }
-      if (pendingPhotos.length > 0) {
-        await db.photos.bulkPut(pendingPhotos);
-      }
-    });
-
-    setContestedList(pendingContested);
-    setUnlocatedList(pendingUnlocated);
-    setImportSummary({
-      total: totalFiles,
-      withGps: pendingPhotos.length,
-      withoutGps: pendingUnlocated.length,
-      contested: pendingContested.length,
-      newThumbs: pendingThumbs.length
-    });
-
-    setProcessing(false);
-    setProgress(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
     }
-    onImportDone();
   };
 
   const handleResolveContested = async (item: ContestedItem, chosenDistrictId: string) => {
@@ -231,7 +259,10 @@ export const UploadView: React.FC<UploadViewProps> = ({
           Загрузи фотографии или видео из своей галереи. Координаты и даты будут считаны локально в браузере без отправки на сервер.
         </p>
 
-        <div className="dropzone-box" onClick={() => !processing && fileInputRef.current?.click()}>
+        <div
+          className={`dropzone-box ${!geoReady ? 'dropzone-disabled' : ''}`}
+          onClick={() => geoReady && !processing && fileInputRef.current?.click()}
+        >
           <input
             ref={fileInputRef}
             type="file"
@@ -239,13 +270,17 @@ export const UploadView: React.FC<UploadViewProps> = ({
             accept="image/*,video/*"
             style={{ display: 'none' }}
             onChange={handleFilesSelected}
-            disabled={processing}
+            disabled={processing || !geoReady}
           />
           <div className="dropzone-icon">
             <UploadCloud size={40} color="var(--accent)" />
           </div>
           <div className="dropzone-text">
-            <strong>Нажми для выбора файлов</strong> или перетащи их сюда
+            {geoReady ? (
+              <><strong>Нажми для выбора файлов</strong> или перетащи их сюда</>
+            ) : (
+              <strong>Загружаю карту регионов…</strong>
+            )}
           </div>
           <div className="dropzone-hint">
             Поддерживаются JPEG, HEIC, MP4, MOV (до 3000+ файлов за раз)
@@ -265,6 +300,31 @@ export const UploadView: React.FC<UploadViewProps> = ({
                 className="progress-fill"
                 style={{ width: `${Math.round((progress.current / progress.total) * 100)}%` }}
               />
+            </div>
+          </div>
+        )}
+
+        {fatalError && (
+          <div className="upload-error-box">
+            <AlertTriangle size={18} color="var(--accent)" />
+            <div>
+              <strong>Обработка прервалась.</strong> {fatalError}
+            </div>
+          </div>
+        )}
+
+        {failedFiles.length > 0 && (
+          <div className="upload-error-box">
+            <AlertTriangle size={18} color="var(--badge-gold)" />
+            <div>
+              <strong>Не удалось обработать файлов: {failedFiles.length}</strong>
+              <ul className="failed-list">
+                {failedFiles.slice(0, 10).map((f, i) => (
+                  <li key={i}>
+                    {f.name} — {f.reason}
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         )}
@@ -454,6 +514,33 @@ export const UploadView: React.FC<UploadViewProps> = ({
           background: var(--accent);
           border-radius: 4px;
           transition: width 0.1s linear;
+        }
+
+        .dropzone-disabled {
+          opacity: 0.6;
+          cursor: progress;
+        }
+
+        .upload-error-box {
+          display: flex;
+          align-items: flex-start;
+          gap: 0.75rem;
+          margin-top: 1rem;
+          padding: 0.75rem 1rem;
+          border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+          background: color-mix(in srgb, var(--accent) 8%, var(--bg-2));
+          border-radius: var(--radius);
+          color: var(--text);
+          font-size: 0.875rem;
+          line-height: 1.4;
+          min-width: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .failed-list {
+          margin: 0.5rem 0 0;
+          padding-left: 1.1rem;
+          color: var(--muted);
         }
 
         .summary-box {
