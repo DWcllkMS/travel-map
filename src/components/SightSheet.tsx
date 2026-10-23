@@ -1,6 +1,18 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Award, Bookmark, ExternalLink, Globe } from 'lucide-react';
 import type { GeoSight, SightKind } from '../types';
+
+const RASTER_EXT = /\.(jpe?g|png|gif|webp)$/i;
+
+function commonsImageUrls(fileName: string): string[] {
+  const encoded = encodeURIComponent(fileName.replace(/ /g, '_'));
+  const urls = [`https://commons.wikimedia.org/wiki/Special:FilePath/${encoded}?width=480`];
+  if (!RASTER_EXT.test(fileName)) {
+    urls.push(`https://commons.wikimedia.org/wiki/Special:FilePath/${encoded}?width=480&format=png`);
+  }
+  urls.push(`https://commons.m.wikimedia.org/wiki/Special:FilePath/${encoded}?width=480`);
+  return urls;
+}
 
 export interface SelectedSightEntity {
   sight: GeoSight;
@@ -38,7 +50,12 @@ export const SightSheet: React.FC<SightSheetProps> = ({
   onClose,
   onToggleWishlist
 }) => {
-  const [imageError, setImageError] = useState(false);
+  const [imageAttempt, setImageAttempt] = useState(0);
+  const sightId = entity?.sight.id;
+
+  useEffect(() => {
+    setImageAttempt(0);
+  }, [sightId]);
 
   if (!entity) return null;
   const { sight } = entity;
@@ -50,9 +67,9 @@ export const SightSheet: React.FC<SightSheetProps> = ({
 
   const radiusKm = sight.radius >= 1000 ? `${sight.radius / 1000} км` : `${sight.radius} м`;
 
-  const imageUrl = sight.image && !imageError
-    ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(sight.image)}?width=480`
-    : null;
+  const imageSources = sight.image ? commonsImageUrls(sight.image) : [];
+  const imageUrl = imageAttempt < imageSources.length ? imageSources[imageAttempt] : null;
+  const imageFailed = imageSources.length > 0 && imageUrl === null;
 
   const formattedDate = entity.firstVisitedDate
     ? new Date(entity.firstVisitedDate).toLocaleDateString('ru-RU', {
@@ -122,9 +139,23 @@ export const SightSheet: React.FC<SightSheetProps> = ({
               alt={sight.name}
               className="sight-thumb-img"
               loading="lazy"
-              onError={() => setImageError(true)}
+              referrerPolicy="no-referrer"
+              onError={() => setImageAttempt(a => a + 1)}
             />
             <span className="sight-thumb-caption">Фото: Wikimedia Commons</span>
+          </div>
+        )}
+
+        {imageFailed && (
+          <div className="sight-thumb-missing">
+            Фото не загрузилось — проверь интернет.{' '}
+            <a
+              href={`https://commons.wikimedia.org/wiki/File:${encodeURIComponent(sight.image!.replace(/ /g, '_'))}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Открыть на Wikimedia Commons
+            </a>
           </div>
         )}
 
@@ -293,6 +324,20 @@ export const SightSheet: React.FC<SightSheetProps> = ({
           overflow: hidden;
           background: var(--bg-3);
           border: 1px solid var(--border);
+        }
+
+        .sight-thumb-missing {
+          margin-top: 0.75rem;
+          padding: 0.75rem 1rem;
+          border: 1px dashed var(--border);
+          border-radius: var(--radius);
+          color: var(--muted);
+          font-size: 0.8125rem;
+          overflow-wrap: anywhere;
+        }
+
+        .sight-thumb-missing a {
+          color: var(--accent);
         }
 
         .sight-thumb-img {
