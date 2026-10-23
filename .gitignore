@@ -1,0 +1,23 @@
+node_modules/
+dist/
+dev-dist/
+.vite/
+*.log
+.env
+.env.local
+.DS_Store
+Thumbs.db
+data-cache/
+
+# --- claude-artifacts: begin ---
+CLAUDE.md
+.claude/
+memory/
+scratchpad/
+GEMINI.md
+.gemini/
+.antigravity/
+.agents/
+htmlcov/
+.coverage
+# --- claude-artifacts: end ---

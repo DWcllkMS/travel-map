@@ -1,0 +1,126 @@
+:root {
+  --bg: #0E0F12;
+  --bg-2: #16181D;
+  --bg-3: #1F2228;
+  --border: #2A2D33;
+  --text: #F2F3F5;
+  --muted: #8A8F99;
+  --accent: #E5383B;
+  --accent-2: #FF6B6E;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 16px;
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --transition: 0.18s cubic-bezier(0.2, 0, 0, 1);
+  --badge-gold: #F59E0B;
+  --badge-gold-bg: rgba(217, 119, 6, 0.15);
+  --badge-gold-border: rgba(217, 119, 6, 0.40);
+  --badge-silver: #94A3B8;
+  --badge-silver-bg: rgba(148, 163, 184, 0.15);
+  --badge-silver-border: rgba(148, 163, 184, 0.40);
+  --badge-bronze: #D97706;
+  --badge-bronze-bg: rgba(180, 83, 9, 0.15);
+  --badge-bronze-border: rgba(180, 83, 9, 0.40);
+}
+
+[data-theme="light"] {
+  --bg: #F6F7F9;
+  --bg-2: #FFFFFF;
+  --bg-3: #EBECEF;
+  --border: #D8DCE3;
+  --text: #111317;
+  --muted: #636872;
+  --accent: #E5383B;
+  --accent-2: #BA181B;
+  --badge-gold: #B45309;
+  --badge-gold-bg: rgba(217, 119, 6, 0.15);
+  --badge-gold-border: rgba(217, 119, 6, 0.40);
+  --badge-silver: #64748B;
+  --badge-silver-bg: rgba(100, 116, 139, 0.15);
+  --badge-silver-border: rgba(100, 116, 139, 0.40);
+  --badge-bronze: #92400E;
+  --badge-bronze-bg: rgba(180, 83, 9, 0.15);
+  --badge-bronze-border: rgba(180, 83, 9, 0.40);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-family);
+  font-size: 14px;
+  line-height: 1.45;
+  user-select: none;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  outline: none;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+input, select {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--text);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  outline: none;
+}
+
+input:focus, select:focus {
+  border-color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001s !important;
+  }
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
