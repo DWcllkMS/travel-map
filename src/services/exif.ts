@@ -6,6 +6,14 @@ export interface ExifExtractionResult {
   alt?: number;
   takenAt?: string;
   thumbnailDataUrl?: string;
+  gpsRedacted?: boolean;
+}
+
+export function isValidCoordinate(lat: number | undefined, lon: number | undefined): boolean {
+  if (lat === undefined || lon === undefined) return false;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return false;
+  return !(lat === 0 && lon === 0);
 }
 
 export class StepTimeoutError extends Error {
@@ -68,9 +76,16 @@ export async function extractPhotoMetadata(file: File | Blob): Promise<ExifExtra
   }
 
   if (data) {
-    if (data.latitude !== undefined && data.longitude !== undefined) {
-      result.lat = Number(data.latitude);
-      result.lon = Number(data.longitude);
+    const hasGpsTags =
+      data.latitude !== undefined || data.longitude !== undefined ||
+      data.GPSLatitude !== undefined || data.GPSLongitude !== undefined;
+    const lat = data.latitude !== undefined ? Number(data.latitude) : undefined;
+    const lon = data.longitude !== undefined ? Number(data.longitude) : undefined;
+    if (isValidCoordinate(lat, lon)) {
+      result.lat = lat;
+      result.lon = lon;
+    } else if (hasGpsTags) {
+      result.gpsRedacted = true;
     }
     if (data.GPSAltitude !== undefined) {
       result.alt = Math.round(Number(data.GPSAltitude));

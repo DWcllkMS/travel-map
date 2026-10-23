@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { UploadCloud, Award, AlertTriangle, Image as ImageIcon } from 'lucide-react';
-import { extractPhotoMetadata, withTimeout } from '../services/exif';
+import { UploadCloud, Award, AlertTriangle, Image as ImageIcon, FolderOpen } from 'lucide-react';
+import { extractPhotoMetadata, withTimeout, isValidCoordinate } from '../services/exif';
 import { parseMp4File } from '../services/videoParser';
 import { computeGroupKey } from '../services/previewGrouper';
 import { latLngToCell } from 'h3-js';
@@ -43,6 +43,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
   onRequestSilverVerification
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const filesPickerRef = useRef<HTMLInputElement>(null);
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [contestedList, setContestedList] = useState<ContestedItem[]>([]);
@@ -55,6 +56,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
     withoutGps: number;
     contested: number;
     newThumbs: number;
+    gpsRedacted: number;
   } | null>(null);
 
   const processFile = async (
@@ -64,7 +66,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
     pendingPhotos: PhotoRecord[],
     pendingThumbs: ThumbnailRecord[],
     pendingUnlocated: UnlocatedPhotoItem[],
-    pendingContested: ContestedItem[]
+    pendingContested: ContestedItem[],
+    redactedCounter: { count: number }
   ) => {
     const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|m4v)$/i.test(file.name);
     let lat: number | undefined;
@@ -86,6 +89,12 @@ export const UploadView: React.FC<UploadViewProps> = ({
       alt = meta.alt;
       takenAt = meta.takenAt;
       thumbUrl = meta.thumbnailDataUrl;
+      if (meta.gpsRedacted) redactedCounter.count++;
+    }
+
+    if (!isValidCoordinate(lat, lon)) {
+      lat = undefined;
+      lon = undefined;
     }
 
     if (!takenAt) {
@@ -176,6 +185,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
     const pendingUnlocated: UnlocatedPhotoItem[] = [];
     const pendingContested: ContestedItem[] = [];
     const failed: FailedFile[] = [];
+    const redactedCounter = { count: 0 };
     let done = 0;
 
     const CONCURRENCY = 4;
@@ -193,7 +203,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
             pendingPhotos,
             pendingThumbs,
             pendingUnlocated,
-            pendingContested
+            pendingContested,
+            redactedCounter
           );
         } catch (err) {
           failed.push({ name: file.name, reason: describeError(err) });
@@ -227,7 +238,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
         withGps: pendingPhotos.length,
         withoutGps: pendingUnlocated.length,
         contested: pendingContested.length,
-        newThumbs: pendingThumbs.length
+        newThumbs: pendingThumbs.length,
+        gpsRedacted: redactedCounter.count
       });
       onImportDone();
     } catch (err) {
@@ -238,6 +250,9 @@ export const UploadView: React.FC<UploadViewProps> = ({
       setProgress(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
+      }
+      if (filesPickerRef.current) {
+        filesPickerRef.current.value = '';
       }
     }
   };
@@ -287,6 +302,29 @@ export const UploadView: React.FC<UploadViewProps> = ({
           </div>
         </div>
 
+        <div className="files-picker-row">
+          <button
+            type="button"
+            className="files-picker-btn"
+            disabled={processing || !geoReady}
+            onClick={() => filesPickerRef.current?.click()}
+          >
+            <FolderOpen size={16} />
+            Выбрать через «Файлы»
+          </button>
+          <span className="files-picker-hint">
+            Если на Android у фото пропадают координаты — выбирай так, а не через галерею.
+          </span>
+          <input
+            ref={filesPickerRef}
+            type="file"
+            multiple
+            style={{ display: 'none' }}
+            onChange={handleFilesSelected}
+            disabled={processing || !geoReady}
+          />
+        </div>
+
         {processing && progress && (
           <div className="progress-container">
             <div className="progress-status">
@@ -309,6 +347,17 @@ export const UploadView: React.FC<UploadViewProps> = ({
             <AlertTriangle size={18} color="var(--accent)" />
             <div>
               <strong>Обработка прервалась.</strong> {fatalError}
+            </div>
+          </div>
+        )}
+
+        {importSummary && importSummary.gpsRedacted > 0 && (
+          <div className="upload-error-box">
+            <AlertTriangle size={18} color="var(--badge-gold)" />
+            <div>
+              <strong>У {importSummary.gpsRedacted} фото телефон стёр координаты.</strong> Android убирает местоположение,
+              когда фото выбирают через галерею. Нажми «Выбрать через „Файлы“», открой папку DCIM/Camera и выбери фото там —
+              тогда координаты сохранятся. Если и так пусто — проверь, что в настройках камеры включено «Сохранять местоположение».
             </div>
           </div>
         )}
@@ -514,6 +563,44 @@ export const UploadView: React.FC<UploadViewProps> = ({
           background: var(--accent);
           border-radius: 4px;
           transition: width 0.1s linear;
+        }
+
+        .files-picker-row {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 0.5rem 0.75rem;
+          margin-top: 0.75rem;
+        }
+
+        .files-picker-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.5rem 0.9rem;
+          border-radius: var(--radius);
+          border: 1px solid var(--border);
+          background: var(--bg-2);
+          color: var(--text);
+          font: inherit;
+          font-size: 0.875rem;
+          cursor: pointer;
+        }
+
+        .files-picker-btn:hover:not(:disabled) {
+          border-color: var(--accent);
+        }
+
+        .files-picker-btn:disabled {
+          opacity: 0.6;
+          cursor: progress;
+        }
+
+        .files-picker-hint {
+          flex: 1 1 16rem;
+          min-width: 0;
+          color: var(--muted);
+          font-size: 0.8125rem;
         }
 
         .dropzone-disabled {
