@@ -726,7 +726,7 @@ async function buildData(targetCountries = ['RUS']) {
   }), 'utf8');
 
   const outRegionsPath = path.join(outDir, 'regions.json');
-  await mapshaper.runCommands(`-i snap ${tempRegionsPath} -simplify 3% keep-shapes -clean -o format=geojson precision=0.001 ${outRegionsPath}`);
+  await mapshaper.runCommands(`-i snap ${tempRegionsPath} -simplify interval=3000 keep-shapes -clean -o format=geojson precision=0.001 ${outRegionsPath}`);
 
   console.log('Dissolving countries from regions...');
   const outCountriesPath = path.join(outDir, 'countries.json');

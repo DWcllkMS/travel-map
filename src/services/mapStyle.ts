@@ -67,6 +67,11 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
         type: 'geojson',
         data: `${dataPrefix}data/labels.json`
       },
+      sightsSource: {
+        type: 'geojson',
+        data: `${dataPrefix}data/sights.json`,
+        promoteId: 'id'
+      },
       photosSource: {
         type: 'geojson',
         data: {
@@ -322,6 +327,128 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
           'text-size': ['interpolate', ['linear'], ['zoom'], 8, 10, 12, 13],
           'text-max-width': 8,
           'text-padding': 2
+        },
+        paint: {
+          'text-color': p.mapText,
+          'text-halo-color': p.mapLand,
+          'text-halo-width': 1.2
+        }
+      },
+      {
+        id: 'sights-points-low',
+        type: 'circle',
+        source: 'sightsSource',
+        minzoom: 0,
+        maxzoom: 6,
+        filter: ['any', ['>=', ['get', 'tier'], 4], ['==', ['get', 'unesco'], true]],
+        paint: {
+          'circle-color': [
+            'case',
+            ['boolean', ['feature-state', 'visited'], false],
+            p.accent,
+            ['boolean', ['feature-state', 'wishlist'], false],
+            p.accent2,
+            p.mapLand
+          ],
+          'circle-stroke-color': [
+            'case',
+            ['boolean', ['feature-state', 'visited'], false],
+            p.mapClusterStroke,
+            ['boolean', ['feature-state', 'wishlist'], false],
+            p.accent2,
+            p.mapText
+          ],
+          'circle-stroke-width': [
+            'case',
+            ['boolean', ['feature-state', 'visited'], false],
+            2,
+            ['boolean', ['feature-state', 'wishlist'], false],
+            2.5,
+            1.5
+          ],
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 3, 6, 4.5, 10, 6, 14, 8]
+        }
+      },
+      {
+        id: 'sights-points-mid',
+        type: 'circle',
+        source: 'sightsSource',
+        minzoom: 6,
+        maxzoom: 9,
+        filter: ['any', ['>=', ['get', 'tier'], 3], ['==', ['get', 'unesco'], true]],
+        paint: {
+          'circle-color': [
+            'case',
+            ['boolean', ['feature-state', 'visited'], false],
+            p.accent,
+            ['boolean', ['feature-state', 'wishlist'], false],
+            p.accent2,
+            p.mapLand
+          ],
+          'circle-stroke-color': [
+            'case',
+            ['boolean', ['feature-state', 'visited'], false],
+            p.mapClusterStroke,
+            ['boolean', ['feature-state', 'wishlist'], false],
+            p.accent2,
+            p.mapText
+          ],
+          'circle-stroke-width': [
+            'case',
+            ['boolean', ['feature-state', 'visited'], false],
+            2,
+            ['boolean', ['feature-state', 'wishlist'], false],
+            2.5,
+            1.5
+          ],
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 3, 6, 4.5, 10, 6, 14, 8]
+        }
+      },
+      {
+        id: 'sights-points-high',
+        type: 'circle',
+        source: 'sightsSource',
+        minzoom: 9,
+        paint: {
+          'circle-color': [
+            'case',
+            ['boolean', ['feature-state', 'visited'], false],
+            p.accent,
+            ['boolean', ['feature-state', 'wishlist'], false],
+            p.accent2,
+            p.mapLand
+          ],
+          'circle-stroke-color': [
+            'case',
+            ['boolean', ['feature-state', 'visited'], false],
+            p.mapClusterStroke,
+            ['boolean', ['feature-state', 'wishlist'], false],
+            p.accent2,
+            p.mapText
+          ],
+          'circle-stroke-width': [
+            'case',
+            ['boolean', ['feature-state', 'visited'], false],
+            2,
+            ['boolean', ['feature-state', 'wishlist'], false],
+            2.5,
+            1.5
+          ],
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 3, 6, 4.5, 10, 6, 14, 8]
+        }
+      },
+      {
+        id: 'sights-labels',
+        type: 'symbol',
+        source: 'sightsSource',
+        minzoom: 10,
+        layout: {
+          'text-field': '{name}',
+          'text-font': ['Noto Sans Regular'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 10, 10, 14, 12],
+          'text-offset': [0, 1.2],
+          'text-anchor': 'top',
+          'text-max-width': 8
         },
         paint: {
           'text-color': p.mapText,

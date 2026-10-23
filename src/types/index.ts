@@ -27,6 +27,36 @@ export interface GeoCountry {
   labelY?: number;
 }
 
+export type SightKind =
+  | 'museum'
+  | 'religious'
+  | 'fortress'
+  | 'palace'
+  | 'monument'
+  | 'nature'
+  | 'mountain'
+  | 'water'
+  | 'park'
+  | 'bridge'
+  | 'lighthouse'
+  | 'other';
+
+export interface GeoSight {
+  id: string;
+  name: string;
+  kind: SightKind;
+  unesco: boolean;
+  sitelinks: number;
+  tier: 1 | 2 | 3 | 4;
+  radius: number;
+  regionId: string;
+  country: string;
+  image?: string;
+  wiki?: string;
+  lat: number;
+  lon: number;
+}
+
 export interface PhotoRecord {
   id: string;
   lat: number;
@@ -56,13 +86,13 @@ export type MarkType = 'visited_manual' | 'wishlist' | 'home';
 export interface MarkRecord {
   id: string;
   targetId: string;
-  targetType: 'district' | 'region';
+  targetType: 'district' | 'region' | 'sight';
   markType: MarkType;
   createdAt: string;
   country?: string;
 }
 
-export type AchievementSection = 'russia' | 'world' | 'special';
+export type AchievementSection = 'russia' | 'world' | 'sights' | 'special';
 
 export interface AchievementProgress {
   current: number;
@@ -115,6 +145,9 @@ export interface GameContext {
   bestCompletedRegionProgress: RegionDistrictStats;
   hasNorthernHemisphere: boolean;
   hasSouthernHemisphere: boolean;
+  visitedSightIds: Set<string>;
+  visitedSightFirstDates: Map<string, string>;
+  allSights: GeoSight[];
 }
 
 export interface UserLevelInfo {
@@ -135,4 +168,8 @@ export interface StatsInfo {
   totalRusDistricts: number;
   landPercent: number;
   countryProgress: { [countryCode: string]: { visited: number; total: number; name: string } };
+  sightsVisited: number;
+  totalSights: number;
+  unescoVisited: number;
+  totalUnesco: number;
 }

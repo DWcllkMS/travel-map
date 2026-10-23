@@ -86,6 +86,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
 
           <div className="stat-card">
+            <span className="stat-title">Места</span>
+            <span className="stat-number accent-text">
+              {stats.sightsVisited} <span className="stat-sub">/ {stats.totalSights.toLocaleString('ru-RU')}</span>
+            </span>
+          </div>
+
+          <div className="stat-card">
+            <span className="stat-title">ЮНЕСКО</span>
+            <span className="stat-number">
+              {stats.unescoVisited} <span className="stat-sub">/ {stats.totalUnesco.toLocaleString('ru-RU')}</span>
+            </span>
+          </div>
+
+          <div className="stat-card">
             <span className="stat-title">Открыто суши</span>
             <span className="stat-number accent-text">{stats.landPercent}%</span>
           </div>

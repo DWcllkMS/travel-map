@@ -87,6 +87,11 @@ const SECTIONS: { id: AchievementSection; title: string; subtitle: string }[] = 
     subtitle: 'Страны, континенты, соседи и полушария планеты'
   },
   {
+    id: 'sights',
+    title: 'Достопримечательности',
+    subtitle: 'Шедевры ЮНЕСКО, Семь чудес России, музеи, храмы и природа'
+  },
+  {
     id: 'special',
     title: 'Особые',
     subtitle: 'Экстремальные высоты, ночные снимки и полярные широты'
@@ -123,7 +128,10 @@ export const AchievementsView: React.FC<AchievementsViewProps> = ({
     hasCompletedAnyFullRegion: false,
     bestCompletedRegionProgress: { visited: 0, total: 1 },
     hasNorthernHemisphere: false,
-    hasSouthernHemisphere: false
+    hasSouthernHemisphere: false,
+    visitedSightIds: new Set(),
+    visitedSightFirstDates: new Map(),
+    allSights: []
   };
 
   return (

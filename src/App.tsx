@@ -10,12 +10,14 @@ import { BackupReminderBanner } from './components/BackupReminderBanner';
 import { SilverVerificationModal, type UnlocatedPhotoItem } from './components/SilverVerificationModal';
 import { db, updateSettings, initStoragePersistence } from './services/db';
 import { globalGeoIndex } from './services/geoIndex';
+import { globalSightsIndex } from './services/sightsIndex';
 import { applyTheme } from './theme/tokens';
 import { latLngToCell } from 'h3-js';
 import {
   calculateDistrictXp,
   calculateRegionXp,
   calculateCountryXp,
+  calculateSightXp,
   calculateUserLevel,
   evaluateAchievements,
   calculateLandCoveragePercent
@@ -71,9 +73,11 @@ export const App: React.FC = () => {
     Promise.all([
       fetch(`${dataPrefix}data/districts-RUS.json`).then(r => r.json()),
       fetch(`${dataPrefix}data/regions.json`).then(r => r.json()),
-      fetch(`${dataPrefix}data/countries.json`).then(r => r.json())
-    ]).then(([districts, regions, countries]) => {
+      fetch(`${dataPrefix}data/countries.json`).then(r => r.json()),
+      fetch(`${dataPrefix}data/sights.json`).then(r => r.json())
+    ]).then(([districts, regions, countries, sights]) => {
       globalGeoIndex.init(districts, regions, countries);
+      globalSightsIndex.init(sights);
       setDataLoaded(true);
     }).catch(err => {
       console.error('Error loading geo data:', err);
@@ -243,10 +247,15 @@ export const App: React.FC = () => {
       }
     }
 
+    const { visitedSightIds, visitedSightFirstDates } = globalSightsIndex.matchPhotos(photos);
+
     return {
       visitedDistrictIds,
       visitedRegionIds,
       visitedCountries,
+      visitedSightIds,
+      visitedSightFirstDates,
+      allSights: globalSightsIndex.getAll(),
       photos,
       marks,
       includeManual: settings.includeManualInStats,
@@ -351,6 +360,14 @@ export const App: React.FC = () => {
       if (def) totalXp += def.xp;
     }
 
+    const { visitedSightIds } = globalSightsIndex.matchPhotos(photos);
+    for (const sId of visitedSightIds) {
+      const s = globalSightsIndex.getById(sId);
+      if (s) {
+        totalXp += calculateSightXp(s.tier, s.unesco);
+      }
+    }
+
     return calculateUserLevel(totalXp);
   }, [photos, marks, unlockedAchievements, settings.includeManualInStats, dataLoaded]);
 
@@ -372,6 +389,18 @@ export const App: React.FC = () => {
 
     const uniqueH3 = new Set(photos.map(p => p.h3).filter(Boolean)).size;
 
+    const allSights = globalSightsIndex.getAll();
+    let unescoVisited = 0;
+    let totalUnesco = 0;
+    for (const s of allSights) {
+      if (s.unesco) {
+        totalUnesco++;
+        if (gameContext.visitedSightIds?.has(s.id)) {
+          unescoVisited++;
+        }
+      }
+    }
+
     return {
       regionsVisited: gameContext.visitedRegionIds.size,
       totalRegions: allRegions.length,
@@ -379,6 +408,10 @@ export const App: React.FC = () => {
       totalCountries: Object.keys(countryProgress).length,
       rusDistrictsVisited: gameContext.visitedDistrictIds.size,
       totalRusDistricts: allDistricts.length,
+      sightsVisited: gameContext.visitedSightIds?.size || 0,
+      totalSights: allSights.length,
+      unescoVisited,
+      totalUnesco,
       landPercent: calculateLandCoveragePercent(uniqueH3),
       countryProgress
     };
@@ -397,9 +430,12 @@ export const App: React.FC = () => {
       if (m.targetType === 'district') {
         const d = dMap.get(m.targetId);
         if (d) name = d.name;
-      } else {
+      } else if (m.targetType === 'region') {
         const r = rMap.get(m.targetId);
         if (r) name = r.name;
+      } else if (m.targetType === 'sight') {
+        const s = globalSightsIndex.getById(m.targetId);
+        if (s) name = s.name;
       }
       return {
         mark: m,
@@ -535,6 +571,7 @@ export const App: React.FC = () => {
             photos={photos}
             marks={marks}
             geoReady={dataLoaded}
+            gameContext={gameContext}
             onOpenLevelDetails={() => setActiveTab('achievements')}
             pickLocationMode={pickLocationMode}
             onLocationPicked={handleLocationPicked}

@@ -17,6 +17,13 @@ export class TravelMapDatabase extends Dexie {
       achievements: 'id, unlockedAt',
       settings: 'id'
     });
+    this.version(2).stores({
+      photos: 'id, districtId, regionId, country, takenAt, proof, h3, thumbId',
+      thumbs: 'id, groupKey, takenAt',
+      marks: 'id, targetId, targetType, markType, country',
+      achievements: 'id, unlockedAt',
+      settings: 'id'
+    });
   }
 }
 

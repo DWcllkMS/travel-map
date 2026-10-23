@@ -5,10 +5,12 @@ import { buildMapStyle, createHatchImage } from '../services/mapStyle';
 import { FogOfWarOverlay } from '../services/fogLayer';
 import { TopBar, type MapFilters } from './TopBar';
 import { DistrictSheet, type SelectedEntity } from './DistrictSheet';
+import { SightSheet, type SelectedSightEntity } from './SightSheet';
 import { PhotoDetailModal } from './PhotoDetailModal';
 import { globalGeoIndex } from '../services/geoIndex';
+import { globalSightsIndex } from '../services/sightsIndex';
 import { db } from '../services/db';
-import type { UserLevelInfo, PhotoRecord, ThumbnailRecord, MarkRecord, GeoDistrict, GeoRegion, ProofLevel } from '../types';
+import type { UserLevelInfo, PhotoRecord, ThumbnailRecord, MarkRecord, GeoDistrict, GeoRegion, ProofLevel, GameContext } from '../types';
 
 interface MapViewProps {
   theme: 'dark' | 'light';
@@ -16,6 +18,7 @@ interface MapViewProps {
   photos: PhotoRecord[];
   marks: MarkRecord[];
   geoReady: boolean;
+  gameContext?: GameContext;
   onOpenLevelDetails?: () => void;
   pickLocationMode?: boolean;
   onLocationPicked?: (loc: { lat: number; lon: number; district?: GeoDistrict; region?: GeoRegion }) => void;
@@ -27,6 +30,7 @@ export const MapView: React.FC<MapViewProps> = ({
   photos,
   marks,
   geoReady,
+  gameContext,
   onOpenLevelDetails,
   pickLocationMode,
   onLocationPicked
@@ -39,12 +43,20 @@ export const MapView: React.FC<MapViewProps> = ({
     visited: true,
     wishlist: true,
     photos: true,
-    fog: true
+    fog: true,
+    sights: true
   });
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
 
   const [selectedEntity, setSelectedEntity] = useState<SelectedEntity | null>(null);
+  const [selectedSightEntity, setSelectedSightEntity] = useState<SelectedSightEntity | null>(null);
   const [selectedPhotoModal, setSelectedPhotoModal] = useState<{ photo?: PhotoRecord; thumb?: ThumbnailRecord } | null>(null);
   const activeCardRef = useRef<{ district?: GeoDistrict; region?: GeoRegion } | null>(null);
+  const activeSightCardRef = useRef<string | null>(null);
+
+  const gameContextRef = useRef(gameContext);
+  gameContextRef.current = gameContext;
 
   const pickLocationModeRef = useRef(pickLocationMode);
   pickLocationModeRef.current = pickLocationMode;
@@ -89,12 +101,13 @@ export const MapView: React.FC<MapViewProps> = ({
           }
         } catch {
         }
+        applyLayerVisibility();
         updateMapFeatureStates();
         updatePhotosGeoJson();
       });
     };
 
-    const ownSources = new Set(['regionsSource', 'districtsSource', 'photosSource']);
+    const ownSources = new Set(['regionsSource', 'districtsSource', 'photosSource', 'sightsSource']);
     map.on('style.load', applyAllStyleData);
     map.on('load', applyAllStyleData);
     map.on('sourcedata', (e) => {
@@ -146,6 +159,23 @@ export const MapView: React.FC<MapViewProps> = ({
         }
       }
 
+      const sightLayers = ['sights-points-low', 'sights-points-mid', 'sights-points-high'];
+      const activeSightLayers = sightLayers.filter(l => map.getLayer(l));
+      if (activeSightLayers.length > 0) {
+        const bbox: [[number, number], [number, number]] = [
+          [e.point.x - 8, e.point.y - 8],
+          [e.point.x + 8, e.point.y + 8]
+        ];
+        const sightFeatures = map.queryRenderedFeatures(bbox, { layers: activeSightLayers });
+        if (sightFeatures.length > 0) {
+          const sId = sightFeatures[0].id || sightFeatures[0].properties?.id;
+          if (sId) {
+            openSightCard(String(sId));
+            return;
+          }
+        }
+      }
+
       let clickedDistrict: GeoDistrict | undefined;
       const districtFeatures = map.queryRenderedFeatures(e.point, { layers: ['districts-fill'] });
       if (districtFeatures.length > 0) {
@@ -153,8 +183,10 @@ export const MapView: React.FC<MapViewProps> = ({
         clickedDistrict = globalGeoIndex.getAllDistricts().find(d => d.id === dId);
       }
 
-      let clickedRegion: GeoRegion | undefined;
-      const regionFeatures = map.queryRenderedFeatures(e.point, { layers: ['regions-fill'] });
+      let clickedRegion: GeoRegion | undefined = clickedDistrict
+        ? globalGeoIndex.getRegionById(clickedDistrict.regionId)
+        : undefined;
+      const regionFeatures = clickedRegion ? [] : map.queryRenderedFeatures(e.point, { layers: ['regions-fill'] });
       if (regionFeatures.length > 0) {
         const rId = regionFeatures[0].id || regionFeatures[0].properties?.id;
         clickedRegion = globalGeoIndex.getRegionById(String(rId));
@@ -188,12 +220,10 @@ export const MapView: React.FC<MapViewProps> = ({
     }
   }, [theme]);
 
-  useEffect(() => {
-    if (fogRef.current) {
-      fogRef.current.setActive(filters.fog);
-    }
+  const applyLayerVisibility = () => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map) return;
+    const current = filtersRef.current;
 
     const setVis = (layerId: string, visible: boolean) => {
       if (map.getLayer(layerId)) {
@@ -201,11 +231,21 @@ export const MapView: React.FC<MapViewProps> = ({
       }
     };
 
-    setVis('regions-fill', filters.visited);
-    setVis('districts-fill', filters.visited);
-    setVis('photos-clusters', filters.photos);
-    setVis('photos-clusters-count', filters.photos);
-    setVis('photos-unclustered', filters.photos);
+    setVis('photos-clusters', current.photos);
+    setVis('photos-clusters-count', current.photos);
+    setVis('photos-unclustered', current.photos);
+    setVis('sights-points-low', current.sights);
+    setVis('sights-points-mid', current.sights);
+    setVis('sights-points-high', current.sights);
+    setVis('sights-labels', current.sights);
+  };
+
+  useEffect(() => {
+    if (fogRef.current) {
+      fogRef.current.setActive(filters.fog);
+    }
+    applyLayerVisibility();
+    updateMapFeatureStates();
   }, [filters]);
 
   useEffect(() => {
@@ -220,7 +260,10 @@ export const MapView: React.FC<MapViewProps> = ({
     if (activeCardRef.current) {
       openDistrictCard(activeCardRef.current.district, activeCardRef.current.region);
     }
-  }, [photos, marks, geoReady]);
+    if (activeSightCardRef.current) {
+      openSightCard(activeSightCardRef.current);
+    }
+  }, [photos, marks, geoReady, gameContext]);
 
   const updatePhotosGeoJson = () => {
     const map = mapRef.current;
@@ -283,11 +326,14 @@ export const MapView: React.FC<MapViewProps> = ({
       }
     }
 
+    const showVisited = filtersRef.current.visited;
+    const showWishlist = filtersRef.current.wishlist;
+
     const regionsWithDistricts = new Set<string>();
     for (const d of globalGeoIndex.getAllDistricts()) {
       regionsWithDistricts.add(d.regionId);
-      const isVisited = visitedDistrictsMap.has(d.id);
-      const isWishlist = wishlistIds.has(d.id);
+      const isVisited = showVisited && visitedDistrictsMap.has(d.id);
+      const isWishlist = showWishlist && wishlistIds.has(d.id);
       const proof = visitedDistrictsMap.get(d.id);
 
       map.setFeatureState(
@@ -297,8 +343,8 @@ export const MapView: React.FC<MapViewProps> = ({
     }
 
     for (const r of globalGeoIndex.getAllRegions()) {
-      const isVisited = visitedRegionsMap.has(r.id);
-      const isWishlist = wishlistIds.has(r.id);
+      const isVisited = showVisited && visitedRegionsMap.has(r.id);
+      const isWishlist = showWishlist && wishlistIds.has(r.id);
       const proof = visitedRegionsMap.get(r.id);
       const hasDistricts = regionsWithDistricts.has(r.id);
 
@@ -306,6 +352,67 @@ export const MapView: React.FC<MapViewProps> = ({
         { source: 'regionsSource', id: r.id },
         { visited: isVisited, proof, wishlist: isWishlist, hasDistricts }
       );
+    }
+
+    if (map.getSource('sightsSource')) {
+      const visitedSights = gameContextRef.current?.visitedSightIds || new Set<string>();
+      for (const s of globalSightsIndex.getAll()) {
+        const isVisited = visitedSights.has(s.id);
+        const isWishlist = showWishlist && wishlistIds.has(s.id);
+        map.setFeatureState(
+          { source: 'sightsSource', id: s.id },
+          { visited: isVisited, wishlist: isWishlist }
+        );
+      }
+    }
+  };
+
+  const openSightCard = (sightId: string) => {
+    activeSightCardRef.current = sightId;
+    const sight = globalSightsIndex.getById(sightId);
+    if (!sight) return;
+
+    const visited = !!gameContextRef.current?.visitedSightIds.has(sight.id);
+    const wishlist = marksRef.current.some(m => m.targetId === sight.id && m.markType === 'wishlist');
+    const firstDate = gameContextRef.current?.visitedSightFirstDates.get(sight.id);
+
+    let regionName: string | undefined;
+    if (sight.regionId) {
+      const reg = globalGeoIndex.getRegionById(sight.regionId);
+      regionName = reg?.name;
+    }
+    let countryName: string | undefined;
+    if (sight.country) {
+      const c = globalGeoIndex.getAllCountries().find(cnt => cnt.id === sight.country);
+      countryName = c?.name;
+    }
+
+    setSelectedSightEntity({
+      sight,
+      regionName,
+      countryName,
+      isVisited: visited,
+      firstVisitedDate: firstDate,
+      isWishlist: wishlist
+    });
+  };
+
+  const handleToggleSightWishlist = async () => {
+    if (!selectedSightEntity) return;
+    const targetId = selectedSightEntity.sight.id;
+    if (selectedSightEntity.isWishlist) {
+      await db.marks.where({ targetId, markType: 'wishlist' }).delete();
+      setSelectedSightEntity({ ...selectedSightEntity, isWishlist: false });
+    } else {
+      await db.marks.put({
+        id: `mark-wishlist-${targetId}`,
+        targetId,
+        targetType: 'sight',
+        markType: 'wishlist',
+        createdAt: new Date().toISOString(),
+        country: selectedSightEntity.sight.country
+      });
+      setSelectedSightEntity({ ...selectedSightEntity, isWishlist: true });
     }
   };
 
@@ -459,6 +566,15 @@ export const MapView: React.FC<MapViewProps> = ({
         onToggleManualVisit={handleToggleManualVisit}
         onSetHomeRegion={handleSetHomeRegion}
         onSelectPhotoThumb={(thumb) => setSelectedPhotoModal({ thumb })}
+      />
+
+      <SightSheet
+        entity={selectedSightEntity}
+        onClose={() => {
+          activeSightCardRef.current = null;
+          setSelectedSightEntity(null);
+        }}
+        onToggleWishlist={handleToggleSightWishlist}
       />
 
       <PhotoDetailModal

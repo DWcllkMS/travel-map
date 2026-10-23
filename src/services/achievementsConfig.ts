@@ -127,6 +127,54 @@ function isNightTime(takenAt?: string): boolean {
   return (localH >= 0 && localH < 4) || (utcH >= 0 && utcH < 4);
 }
 
+export const SEVEN_WONDERS_OF_RUSSIA = [
+  'Q5513',
+  'Q1235610',
+  'Q820002',
+  'Q4360238',
+  'Q129846',
+  'Q2155757',
+  'Q43105'
+];
+
+function countVisitedUnesco(ctx: GameContext): number {
+  if (!ctx.visitedSightIds || !ctx.allSights) return 0;
+  let count = 0;
+  for (const s of ctx.allSights) {
+    if (ctx.visitedSightIds.has(s.id) && s.unesco) count++;
+  }
+  return count;
+}
+
+function countVisitedSevenWonders(ctx: GameContext): number {
+  if (!ctx.visitedSightIds) return 0;
+  let count = 0;
+  for (const q of SEVEN_WONDERS_OF_RUSSIA) {
+    if (ctx.visitedSightIds.has(q)) count++;
+  }
+  return count;
+}
+
+function countVisitedByKind(ctx: GameContext, kinds: string[]): number {
+  if (!ctx.visitedSightIds || !ctx.allSights) return 0;
+  let count = 0;
+  for (const s of ctx.allSights) {
+    if (ctx.visitedSightIds.has(s.id) && kinds.includes(s.kind)) count++;
+  }
+  return count;
+}
+
+function countNonRusSightCountries(ctx: GameContext): number {
+  if (!ctx.visitedSightIds || !ctx.allSights) return 0;
+  const countries = new Set<string>();
+  for (const s of ctx.allSights) {
+    if (ctx.visitedSightIds.has(s.id) && s.country && s.country !== 'RUS') {
+      countries.add(s.country);
+    }
+  }
+  return countries.size;
+}
+
 export const ACHIEVEMENTS: AchievementDef[] = [
   {
     id: 'rus_subjects_5',
@@ -683,6 +731,163 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     progress: (ctx: GameContext) => ({
       current: Math.min(100, ctx.visitedNonRusRegionCount || 0),
       target: 100
+    })
+  },
+
+  {
+    id: 'sights_10',
+    section: 'sights',
+    title: 'Первые открытия',
+    description: 'Открой 10 достопримечательностей',
+    icon: 'compass',
+    xp: 500,
+    condition: (ctx: GameContext) => (ctx.visitedSightIds?.size || 0) >= 10,
+    progress: (ctx: GameContext) => ({
+      current: Math.min(10, ctx.visitedSightIds?.size || 0),
+      target: 10
+    })
+  },
+  {
+    id: 'sights_50',
+    section: 'sights',
+    title: 'Знаток мест',
+    description: 'Открой 50 достопримечательностей',
+    icon: 'map-pin',
+    xp: 1500,
+    condition: (ctx: GameContext) => (ctx.visitedSightIds?.size || 0) >= 50,
+    progress: (ctx: GameContext) => ({
+      current: Math.min(50, ctx.visitedSightIds?.size || 0),
+      target: 50
+    })
+  },
+  {
+    id: 'sights_150',
+    section: 'sights',
+    title: 'Охотник за легендами',
+    description: 'Открой 150 достопримечательностей',
+    icon: 'landmark',
+    xp: 3500,
+    condition: (ctx: GameContext) => (ctx.visitedSightIds?.size || 0) >= 150,
+    progress: (ctx: GameContext) => ({
+      current: Math.min(150, ctx.visitedSightIds?.size || 0),
+      target: 150
+    })
+  },
+  {
+    id: 'sights_400',
+    section: 'sights',
+    title: 'Великий исследователь',
+    description: 'Открой 400 достопримечательностей',
+    icon: 'trophy',
+    xp: 8000,
+    condition: (ctx: GameContext) => (ctx.visitedSightIds?.size || 0) >= 400,
+    progress: (ctx: GameContext) => ({
+      current: Math.min(400, ctx.visitedSightIds?.size || 0),
+      target: 400
+    })
+  },
+  {
+    id: 'sights_unesco_3',
+    section: 'sights',
+    title: 'Мировое достояние',
+    description: 'Посети 3 объекта Всемирного наследия ЮНЕСКО',
+    icon: 'globe',
+    xp: 1200,
+    condition: (ctx: GameContext) => countVisitedUnesco(ctx) >= 3,
+    progress: (ctx: GameContext) => ({
+      current: Math.min(3, countVisitedUnesco(ctx)),
+      target: 3
+    })
+  },
+  {
+    id: 'sights_unesco_10',
+    section: 'sights',
+    title: 'Хранитель наследия',
+    description: 'Посети 10 объектов Всемирного наследия ЮНЕСКО',
+    icon: 'award',
+    xp: 3000,
+    condition: (ctx: GameContext) => countVisitedUnesco(ctx) >= 10,
+    progress: (ctx: GameContext) => ({
+      current: Math.min(10, countVisitedUnesco(ctx)),
+      target: 10
+    })
+  },
+  {
+    id: 'sights_unesco_30',
+    section: 'sights',
+    title: 'Сокровищница цивилизации',
+    description: 'Посети 30 объектов Всемирного наследия ЮНЕСКО',
+    icon: 'crown',
+    xp: 7000,
+    condition: (ctx: GameContext) => countVisitedUnesco(ctx) >= 30,
+    progress: (ctx: GameContext) => ({
+      current: Math.min(30, countVisitedUnesco(ctx)),
+      target: 30
+    })
+  },
+  {
+    id: 'sights_seven_wonders_rus',
+    section: 'sights',
+    title: 'Семь чудес России',
+    description: 'Посети все 7 чудес России: озеро Байкал, Долину гейзеров, Мамаев курган, Петергоф, собор Василия Блаженного, столбы выветривания Маньпупунёр и Эльбрус',
+    icon: 'sparkles',
+    xp: 10000,
+    condition: (ctx: GameContext) => countVisitedSevenWonders(ctx) >= 7,
+    progress: (ctx: GameContext) => ({
+      current: countVisitedSevenWonders(ctx),
+      target: 7
+    })
+  },
+  {
+    id: 'sights_museum_20',
+    section: 'sights',
+    title: 'Любитель искусств',
+    description: 'Посети 20 музеев',
+    icon: 'landmark',
+    xp: 1800,
+    condition: (ctx: GameContext) => countVisitedByKind(ctx, ['museum']) >= 20,
+    progress: (ctx: GameContext) => ({
+      current: Math.min(20, countVisitedByKind(ctx, ['museum'])),
+      target: 20
+    })
+  },
+  {
+    id: 'sights_religious_20',
+    section: 'sights',
+    title: 'Святые обители',
+    description: 'Посети 20 храмов или монастырей',
+    icon: 'landmark',
+    xp: 1800,
+    condition: (ctx: GameContext) => countVisitedByKind(ctx, ['religious']) >= 20,
+    progress: (ctx: GameContext) => ({
+      current: Math.min(20, countVisitedByKind(ctx, ['religious'])),
+      target: 20
+    })
+  },
+  {
+    id: 'sights_nature_30',
+    section: 'sights',
+    title: 'Сила природы',
+    description: 'Посети 30 природных достопримечательностей',
+    icon: 'trees',
+    xp: 2500,
+    condition: (ctx: GameContext) => countVisitedByKind(ctx, ['nature', 'mountain', 'water', 'park']) >= 30,
+    progress: (ctx: GameContext) => ({
+      current: Math.min(30, countVisitedByKind(ctx, ['nature', 'mountain', 'water', 'park'])),
+      target: 30
+    })
+  },
+  {
+    id: 'sights_countries_5',
+    section: 'sights',
+    title: 'Чудеса света',
+    description: 'Посети достопримечательности в 5 разных странах кроме России',
+    icon: 'navigation',
+    xp: 3000,
+    condition: (ctx: GameContext) => countNonRusSightCountries(ctx) >= 5,
+    progress: (ctx: GameContext) => ({
+      current: Math.min(5, countNonRusSightCountries(ctx)),
+      target: 5
     })
   },
 

@@ -37,6 +37,10 @@ export function calculateCountryXp(proof: ProofLevel): number {
   return proof === 'bronze' ? Math.round(base * 0.5) : base;
 }
 
+export function calculateSightXp(tier: number, unesco: boolean): number {
+  return 150 * tier + (unesco ? 500 : 0);
+}
+
 export function calculateUserLevel(totalXp: number): UserLevelInfo {
   let currentRank = RANKS[0];
   let nextRank = RANKS[1];

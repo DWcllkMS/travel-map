@@ -6,6 +6,7 @@ export interface MapFilters {
   wishlist: boolean;
   photos: boolean;
   fog: boolean;
+  sights: boolean;
 }
 
 interface TopBarProps {
@@ -76,6 +77,14 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span className="chip-indicator fog-indicator" />
           Туман
         </button>
+
+        <button
+          className={`chip ${filters.sights ? 'active' : ''}`}
+          onClick={() => toggleFilter('sights')}
+        >
+          <span className="chip-indicator sights-indicator" />
+          Места
+        </button>
       </div>
 
       <style>{`
@@ -104,6 +113,8 @@ export const TopBar: React.FC<TopBarProps> = ({
           pointer-events: auto;
           cursor: pointer;
           backdrop-filter: blur(8px);
+          flex-shrink: 0;
+          white-space: nowrap;
         }
 
         .level-badge {
@@ -153,10 +164,11 @@ export const TopBar: React.FC<TopBarProps> = ({
           display: flex;
           align-items: center;
           gap: 6px;
+          justify-content: flex-end;
+          flex-wrap: wrap;
+          flex: 1 1 auto;
+          min-width: 0;
           pointer-events: auto;
-          overflow-x: auto;
-          max-width: 60%;
-          padding-bottom: 2px;
         }
 
         .chip {
@@ -210,6 +222,10 @@ export const TopBar: React.FC<TopBarProps> = ({
           background: var(--muted);
         }
 
+        .chip.active .chip-indicator.sights-indicator {
+          background: var(--accent);
+        }
+
         @media (max-width: 600px) {
           .topbar-container {
             flex-direction: column;
@@ -217,7 +233,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             gap: 8px;
           }
           .filter-chips {
-            max-width: 100%;
+            justify-content: flex-start;
           }
           .xp-bar-container {
             width: 70px;

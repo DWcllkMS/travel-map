@@ -36,6 +36,9 @@ function createMockContext(overrides: Partial<GameContext> = {}): GameContext {
     bestCompletedRegionProgress: { visited: 0, total: 1 },
     hasNorthernHemisphere: false,
     hasSouthernHemisphere: false,
+    visitedSightIds: new Set(),
+    visitedSightFirstDates: new Map(),
+    allSights: [],
     ...overrides
   };
 }
@@ -122,12 +125,12 @@ describe('Achievements Configuration & Integrity', () => {
     }
   });
 
-  it('has between 35 and 48 achievements divided into russia, world and special sections', () => {
+  it('has between 35 and 65 achievements divided into russia, world, sights and special sections', () => {
     expect(ACHIEVEMENTS.length).toBeGreaterThanOrEqual(35);
-    expect(ACHIEVEMENTS.length).toBeLessThanOrEqual(48);
+    expect(ACHIEVEMENTS.length).toBeLessThanOrEqual(65);
 
     const sections = new Set(ACHIEVEMENTS.map(a => a.section));
-    expect(sections).toEqual(new Set(['russia', 'world', 'special']));
+    expect(sections).toEqual(new Set(['russia', 'world', 'sights', 'special']));
   });
 
   it('computes valid progress for every achievement on default context', () => {

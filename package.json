@@ -1,6 +1,6 @@
 {
   "name": "travel-map",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "build:data": "node scripts/build-data.mjs"
+    "build:data": "node scripts/build-data.mjs",
+    "build:sights": "node scripts/build-sights.mjs"
   },
   "dependencies": {
     "@fontsource/inter": "^5.1.0",
