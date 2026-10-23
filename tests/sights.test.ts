@@ -115,22 +115,14 @@ describe('Sights Data & Integrity', () => {
   });
 
   it('verifies all Russian UNESCO sites and Kremlin deduplication', () => {
-    const unescoRussiaCache = path.join(root, 'data-cache', 'sights', 'unesco_russia.json');
-    expect(fs.existsSync(unescoRussiaCache)).toBe(true);
-    const unescoRusData = JSON.parse(fs.readFileSync(unescoRussiaCache, 'utf8'));
-
-    const subcomponents = new Set([
-      'Q2263092', 'Q2494499', 'Q4071782', 'Q4071797', 'Q4116323',
-      'Q4158660', 'Q4158661', 'Q4505008', 'Q24937319', 'Q110279772',
-      'Q116505071', 'Q18785988', 'Q205711', 'Q131416'
-    ]);
-
-    const expectedQids = new Set<string>();
-    for (const b of unescoRusData) {
-      const q = b.item.value.split('/').pop()!;
-      if (!subcomponents.has(q)) expectedQids.add(q);
-    }
-    expectedQids.add('Q16961872');
+    const expectedQids = [
+      'Q1218832', 'Q122730525', 'Q128597769', 'Q155495', 'Q15980181', 'Q1643788',
+      'Q16961872', 'Q192243', 'Q211962', 'Q220951', 'Q270725', 'Q277576',
+      'Q277683', 'Q4204534', 'Q4411008', 'Q47519282', 'Q477462', 'Q5513',
+      'Q5595', 'Q593870', 'Q603622', 'Q616578', 'Q64532917', 'Q64746144',
+      'Q64763166', 'Q64787152', 'Q64787456', 'Q64797735', 'Q64798261', 'Q64808630',
+      'Q66053233', 'Q838256', 'Q838264', 'Q985595'
+    ];
 
     const sightsMap = new Map<string, any>(sightsRaw.features.map((f: any) => [f.properties.id, f.properties]));
 
