@@ -1,4 +1,4 @@
-import type { RarityLevel, ProofLevel, UserLevelInfo, GameContext, AchievementDef } from '../types';
+import type { RarityLevel, ProofLevel, UserLevelInfo, GameContext, AchievementDef, PhotoRecord, MarkRecord, GeoDistrict, GeoRegion, GeoSight } from '../types';
 import { ACHIEVEMENTS } from './achievementsConfig';
 
 export interface XpBreakdown {
@@ -7,6 +7,117 @@ export interface XpBreakdown {
   regionXp: number;
   countryXp: number;
   achievementXp: number;
+  sightXp?: number;
+}
+
+export interface CalculateSubsetXpOptions {
+  photos: PhotoRecord[];
+  marks?: MarkRecord[];
+  unlockedAchievements?: { id: string }[];
+  includeManual?: boolean;
+  homePoint?: GeoPoint;
+  homeRegionId?: string;
+  getDistrictById?: (id: string) => GeoDistrict | undefined;
+  getRegionById?: (id: string) => GeoRegion | undefined;
+  getDistrictCenter?: (id: string) => GeoPoint | undefined;
+  getRegionCenter?: (id: string) => GeoPoint | undefined;
+  visitedSightIds?: Iterable<string>;
+  getSightById?: (id: string) => GeoSight | undefined;
+}
+
+export function calculateSubsetXp(opts: CalculateSubsetXpOptions): XpBreakdown {
+  let districtXp = 0;
+  let regionXp = 0;
+  let countryXp = 0;
+  let achievementXp = 0;
+  let sightXp = 0;
+
+  const awayPoint = (regionId: string | undefined, point: GeoPoint | undefined) =>
+    regionId && regionId === opts.homeRegionId ? undefined : point;
+
+  const photoDistrictIds = new Set<string>();
+  const photoRegionIds = new Set<string>();
+  const photoCountries = new Set<string>();
+
+  for (const p of opts.photos) {
+    if (p.districtId) photoDistrictIds.add(p.districtId);
+    if (p.regionId) photoRegionIds.add(p.regionId);
+    if (p.country) photoCountries.add(p.country);
+  }
+
+  const manualDistrictMarks = new Set<string>();
+  const manualRegionMarks = new Set<string>();
+  if (opts.includeManual && opts.marks) {
+    for (const m of opts.marks) {
+      if (m.markType === 'visited_manual') {
+        if (m.targetType === 'district') manualDistrictMarks.add(m.targetId);
+        else manualRegionMarks.add(m.targetId);
+      }
+    }
+  }
+
+  for (const dId of photoDistrictIds) {
+    const d = opts.getDistrictById?.(dId);
+    const rarity = d ? d.rarity : 1;
+    const center = opts.getDistrictCenter?.(dId);
+    districtXp += applyDistanceBonus(calculateDistrictXp(rarity, 'gold'), opts.homePoint, awayPoint(d?.regionId, center));
+  }
+
+  for (const dId of manualDistrictMarks) {
+    if (!photoDistrictIds.has(dId)) {
+      const d = opts.getDistrictById?.(dId);
+      const rarity = d ? d.rarity : 1;
+      const center = opts.getDistrictCenter?.(dId);
+      districtXp += applyDistanceBonus(calculateDistrictXp(rarity, 'bronze'), opts.homePoint, awayPoint(d?.regionId, center));
+    }
+  }
+
+  for (const rId of photoRegionIds) {
+    const r = opts.getRegionById?.(rId);
+    const rarity = r ? r.rarity : 1;
+    const center = opts.getRegionCenter?.(rId);
+    regionXp += applyDistanceBonus(calculateRegionXp(rarity, 'gold'), opts.homePoint, awayPoint(rId, center));
+  }
+
+  for (const rId of manualRegionMarks) {
+    if (!photoRegionIds.has(rId)) {
+      const r = opts.getRegionById?.(rId);
+      const rarity = r ? r.rarity : 1;
+      const center = opts.getRegionCenter?.(rId);
+      regionXp += applyDistanceBonus(calculateRegionXp(rarity, 'bronze'), opts.homePoint, awayPoint(rId, center));
+    }
+  }
+
+  for (const _c of photoCountries) {
+    countryXp += calculateCountryXp('gold');
+  }
+
+  if (opts.unlockedAchievements) {
+    const achMap = new Map(ACHIEVEMENTS.map(a => [a.id, a]));
+    for (const aRec of opts.unlockedAchievements) {
+      const def = achMap.get(aRec.id);
+      if (def) achievementXp += def.xp;
+    }
+  }
+
+  if (opts.visitedSightIds) {
+    for (const sId of opts.visitedSightIds) {
+      const s = opts.getSightById?.(sId);
+      if (s) {
+        sightXp += applyDistanceBonus(calculateSightXp(s.tier, s.unesco), opts.homePoint, awayPoint(s.regionId, { lat: s.lat, lon: s.lon }));
+      }
+    }
+  }
+
+  const totalXp = districtXp + regionXp + countryXp + achievementXp + sightXp;
+  return {
+    totalXp,
+    districtXp,
+    regionXp,
+    countryXp,
+    achievementXp,
+    sightXp
+  };
 }
 
 export const RANKS = [

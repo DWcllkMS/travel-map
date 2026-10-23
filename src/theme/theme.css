@@ -7,6 +7,7 @@
   --muted: #8A8F99;
   --accent: #E5383B;
   --accent-2: #FF6B6E;
+  --on-accent: #FFFFFF;
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 16px;
@@ -32,6 +33,7 @@
   --muted: #636872;
   --accent: #E5383B;
   --accent-2: #BA181B;
+  --on-accent: #FFFFFF;
   --badge-gold: #B45309;
   --badge-gold-bg: rgba(217, 119, 6, 0.15);
   --badge-gold-border: rgba(217, 119, 6, 0.40);

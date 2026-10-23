@@ -5,6 +5,7 @@ import { Navigation, type ActiveTab } from './components/Navigation';
 import { MapView } from './components/MapView';
 import { UploadView } from './components/UploadView';
 import { AchievementsView } from './components/AchievementsView';
+import { TimelineView } from './components/TimelineView';
 import { ProfileView } from './components/ProfileView';
 import { BackupReminderBanner } from './components/BackupReminderBanner';
 import { SilverVerificationModal, type UnlocatedPhotoItem } from './components/SilverVerificationModal';
@@ -14,11 +15,7 @@ import { globalSightsIndex } from './services/sightsIndex';
 import { applyTheme } from './theme/tokens';
 import { latLngToCell } from 'h3-js';
 import {
-  calculateDistrictXp,
-  calculateRegionXp,
-  calculateCountryXp,
-  calculateSightXp,
-  applyDistanceBonus,
+  calculateSubsetXp,
   homeDistanceBonus,
   calculateUserLevel,
   evaluateAchievements,
@@ -65,6 +62,12 @@ export const App: React.FC = () => {
     region?: GeoRegion;
   } | null>(null);
   const [pickLocationMode, setPickLocationMode] = useState(false);
+  const [fitBoundsTarget, setFitBoundsTarget] = useState<{ bounds: [[number, number], [number, number]]; timestamp: number } | null>(null);
+
+  const handleSelectTrip = (bounds: [[number, number], [number, number]]) => {
+    setFitBoundsTarget({ bounds, timestamp: Date.now() });
+    setActiveTab('map');
+  };
 
   useEffect(() => {
     initStoragePersistence();
@@ -301,85 +304,28 @@ export const App: React.FC = () => {
   );
 
   const levelInfo: UserLevelInfo = useMemo(() => {
-    let totalXp = 0;
-    const awayPoint = (regionId: string | undefined, point: { lat: number; lon: number } | undefined) =>
-      regionId && regionId === homeRegionId ? undefined : point;
-
-    const manualDistrictMarks = new Set<string>();
-    const manualRegionMarks = new Set<string>();
-
-    if (settings.includeManualInStats) {
-      for (const m of marks) {
-        if (m.markType === 'visited_manual') {
-          if (m.targetType === 'district') manualDistrictMarks.add(m.targetId);
-          else manualRegionMarks.add(m.targetId);
-        }
-      }
-    }
-
-    const photoDistrictIds = new Set<string>();
-    const photoRegionIds = new Set<string>();
-    const photoCountries = new Set<string>();
-
-    for (const p of photos) {
-      if (p.districtId) photoDistrictIds.add(p.districtId);
-      if (p.regionId) photoRegionIds.add(p.regionId);
-      if (p.country) photoCountries.add(p.country);
-    }
-
     const allDistricts = globalGeoIndex.getAllDistricts();
     const districtById = new Map(allDistricts.map(d => [d.id, d]));
-
-    for (const dId of photoDistrictIds) {
-      const d = districtById.get(dId);
-      const rarity = d ? d.rarity : 1;
-      totalXp += applyDistanceBonus(calculateDistrictXp(rarity, 'gold'), homePoint, awayPoint(d?.regionId, globalGeoIndex.getDistrictCenter(dId)));
-    }
-
-    for (const dId of manualDistrictMarks) {
-      if (!photoDistrictIds.has(dId)) {
-        const d = districtById.get(dId);
-        const rarity = d ? d.rarity : 1;
-        totalXp += applyDistanceBonus(calculateDistrictXp(rarity, 'bronze'), homePoint, awayPoint(d?.regionId, globalGeoIndex.getDistrictCenter(dId)));
-      }
-    }
-
     const allRegions = globalGeoIndex.getAllRegions();
     const regionById = new Map(allRegions.map(r => [r.id, r]));
-
-    for (const rId of photoRegionIds) {
-      const r = regionById.get(rId);
-      const rarity = r ? r.rarity : 1;
-      totalXp += applyDistanceBonus(calculateRegionXp(rarity, 'gold'), homePoint, awayPoint(rId, globalGeoIndex.getRegionCenter(rId)));
-    }
-
-    for (const rId of manualRegionMarks) {
-      if (!photoRegionIds.has(rId)) {
-        const r = regionById.get(rId);
-        const rarity = r ? r.rarity : 1;
-        totalXp += applyDistanceBonus(calculateRegionXp(rarity, 'bronze'), homePoint, awayPoint(rId, globalGeoIndex.getRegionCenter(rId)));
-      }
-    }
-
-    for (const _c of photoCountries) {
-      totalXp += calculateCountryXp('gold');
-    }
-
-    const achMap = new Map(ACHIEVEMENTS.map(a => [a.id, a]));
-    for (const aRec of unlockedAchievements) {
-      const def = achMap.get(aRec.id);
-      if (def) totalXp += def.xp;
-    }
-
     const { visitedSightIds } = globalSightsIndex.matchPhotos(photos);
-    for (const sId of visitedSightIds) {
-      const s = globalSightsIndex.getById(sId);
-      if (s) {
-        totalXp += applyDistanceBonus(calculateSightXp(s.tier, s.unesco), homePoint, awayPoint(s.regionId, { lat: s.lat, lon: s.lon }));
-      }
-    }
 
-    return calculateUserLevel(totalXp);
+    const xpRes = calculateSubsetXp({
+      photos,
+      marks,
+      unlockedAchievements,
+      includeManual: settings.includeManualInStats,
+      homePoint,
+      homeRegionId,
+      getDistrictById: id => districtById.get(id),
+      getRegionById: id => regionById.get(id),
+      getDistrictCenter: id => globalGeoIndex.getDistrictCenter(id),
+      getRegionCenter: id => globalGeoIndex.getRegionCenter(id),
+      visitedSightIds,
+      getSightById: id => globalSightsIndex.getById(id)
+    });
+
+    return calculateUserLevel(xpRes.totalXp);
   }, [photos, marks, unlockedAchievements, settings.includeManualInStats, dataLoaded, homePoint, homeRegionId]);
 
   const stats: StatsInfo = useMemo(() => {
@@ -594,6 +540,7 @@ export const App: React.FC = () => {
             onOpenLevelDetails={() => setActiveTab('achievements')}
             pickLocationMode={pickLocationMode}
             onLocationPicked={handleLocationPicked}
+            fitBoundsTarget={fitBoundsTarget}
           />
         </div>
 
@@ -612,6 +559,19 @@ export const App: React.FC = () => {
             <AchievementsView
               unlockedList={unlockedAchievements}
               context={gameContext}
+            />
+          </div>
+        )}
+
+        {activeTab === 'timeline' && (
+          <div className="tab-page active-page">
+            <TimelineView
+              photos={photos}
+              marks={marks}
+              unlockedAchievements={unlockedAchievements}
+              homeRegionId={homeRegionId}
+              onNavigateToUpload={() => setActiveTab('upload')}
+              onSelectTrip={handleSelectTrip}
             />
           </div>
         )}

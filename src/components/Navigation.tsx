@@ -1,7 +1,7 @@
 import React from 'react';
-import { Map, UploadCloud, Trophy, User } from 'lucide-react';
+import { Map, UploadCloud, Trophy, CalendarDays, User } from 'lucide-react';
 
-export type ActiveTab = 'map' | 'upload' | 'achievements' | 'profile';
+export type ActiveTab = 'map' | 'upload' | 'achievements' | 'timeline' | 'profile';
 
 interface NavigationProps {
   activeTab: ActiveTab;
@@ -54,6 +54,14 @@ export const Navigation: React.FC<NavigationProps> = ({
           </button>
 
           <button
+            className={`nav-button ${activeTab === 'timeline' ? 'active' : ''}`}
+            onClick={() => onTabChange('timeline')}
+          >
+            <CalendarDays size={20} className="nav-icon" />
+            <span className="nav-label">Хроника</span>
+          </button>
+
+          <button
             className={`nav-button ${activeTab === 'profile' ? 'active' : ''}`}
             onClick={() => onTabChange('profile')}
           >
@@ -89,6 +97,14 @@ export const Navigation: React.FC<NavigationProps> = ({
           {unlockedAchievementsCount !== undefined && unlockedAchievementsCount > 0 && (
             <span className="mobile-badge">{unlockedAchievementsCount}</span>
           )}
+        </button>
+
+        <button
+          className={`nav-tab-item ${activeTab === 'timeline' ? 'active' : ''}`}
+          onClick={() => onTabChange('timeline')}
+        >
+          <CalendarDays size={20} className="nav-tab-icon" />
+          <span className="nav-tab-text">Хроника</span>
         </button>
 
         <button

@@ -310,6 +310,63 @@ export class GeoSpatialIndex {
     return { lat: (minY + maxY) / 2, lon: (minX + maxX) / 2 };
   }
 
+  private adjacencyCache = new Map<string, boolean>();
+
+  areRegionsNeighbors(r1: string, r2: string): boolean {
+    if (!r1 || !r2) return false;
+    if (r1 === r2) return true;
+    const key = r1 < r2 ? `${r1}:${r2}` : `${r2}:${r1}`;
+    if (this.adjacencyCache.has(key)) {
+      return this.adjacencyCache.get(key)!;
+    }
+    const idx1 = this.regionFeatures.findIndex(f => f.properties.id === r1);
+    const idx2 = this.regionFeatures.findIndex(f => f.properties.id === r2);
+    if (idx1 < 0 || idx2 < 0) {
+      this.adjacencyCache.set(key, false);
+      return false;
+    }
+    const [minX1, minY1, maxX1, maxY1] = this.regionBBoxes[idx1];
+    const [minX2, minY2, maxX2, maxY2] = this.regionBBoxes[idx2];
+    const eps = 0.05;
+    if (maxX1 + eps < minX2 || minX1 - eps > maxX2 || maxY1 + eps < minY2 || minY1 - eps > maxY2) {
+      this.adjacencyCache.set(key, false);
+      return false;
+    }
+
+    const g1 = this.regionFeatures[idx1].geometry;
+    const g2 = this.regionFeatures[idx2].geometry;
+    const coords1: [number, number][] = [];
+    const coords2: [number, number][] = [];
+    const extract = (geom: any, target: [number, number][]) => {
+      const walk = (c: any) => {
+        if (typeof c[0] === 'number') target.push([c[0], c[1]]);
+        else c.forEach(walk);
+      };
+      walk(geom.coordinates);
+    };
+    extract(g1, coords1);
+    extract(g2, coords2);
+
+    const step1 = Math.max(1, Math.floor(coords1.length / 250));
+    const step2 = Math.max(1, Math.floor(coords2.length / 250));
+    let minD2 = Infinity;
+    for (let i = 0; i < coords1.length; i += step1) {
+      const p1 = coords1[i];
+      for (let j = 0; j < coords2.length; j += step2) {
+        const p2 = coords2[j];
+        const d2 = (p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2;
+        if (d2 < minD2) minD2 = d2;
+        if (minD2 < 0.01) {
+          this.adjacencyCache.set(key, true);
+          return true;
+        }
+      }
+    }
+    const isAdj = minD2 < 0.04;
+    this.adjacencyCache.set(key, isAdj);
+    return isAdj;
+  }
+
   getDistrictCountByRegionId(regionId: string): number {
     return this.districtCountByRegionId.get(regionId) || 0;
   }

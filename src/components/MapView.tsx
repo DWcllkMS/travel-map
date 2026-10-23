@@ -24,6 +24,7 @@ interface MapViewProps {
   onOpenLevelDetails?: () => void;
   pickLocationMode?: boolean;
   onLocationPicked?: (loc: { lat: number; lon: number; district?: GeoDistrict; region?: GeoRegion }) => void;
+  fitBoundsTarget?: { bounds: [[number, number], [number, number]]; timestamp: number } | null;
 }
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -36,7 +37,8 @@ export const MapView: React.FC<MapViewProps> = ({
   homeRegionId,
   onOpenLevelDetails,
   pickLocationMode,
-  onLocationPicked
+  onLocationPicked,
+  fitBoundsTarget
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreInstance | null>(null);
@@ -229,6 +231,19 @@ export const MapView: React.FC<MapViewProps> = ({
       fogRef.current.setTheme(theme === 'dark');
     }
   }, [theme]);
+
+  useEffect(() => {
+    if (!fitBoundsTarget || !mapRef.current) return;
+    try {
+      mapRef.current.resize();
+      mapRef.current.fitBounds(fitBoundsTarget.bounds, {
+        padding: 80,
+        maxZoom: 12,
+        duration: 900
+      });
+    } catch {
+    }
+  }, [fitBoundsTarget]);
 
   const applyLayerVisibility = () => {
     const map = mapRef.current;
