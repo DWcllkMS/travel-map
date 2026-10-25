@@ -53,6 +53,7 @@ export const App: React.FC = () => {
 
   const [newlyUnlockedNotification, setNewlyUnlockedNotification] = useState<string | null>(null);
   const [showBackupReminder, setShowBackupReminder] = useState(false);
+  const [isTimelapseActive, setIsTimelapseActive] = useState(false);
 
   const [silverPhotoCandidate, setSilverPhotoCandidate] = useState<UnlocatedPhotoItem | null>(null);
   const [silverSelectedLocation, setSilverSelectedLocation] = useState<{
@@ -545,6 +546,7 @@ export const App: React.FC = () => {
             pickLocationMode={pickLocationMode}
             onLocationPicked={handleLocationPicked}
             fitBoundsTarget={fitBoundsTarget}
+            onTimelapseActiveChange={setIsTimelapseActive}
           />
         </div>
 
@@ -594,7 +596,7 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {showBackupReminder && (
+        {showBackupReminder && !isTimelapseActive && (
           <BackupReminderBanner
             onExport={handleExportBackupNow}
             onDismiss={handleDismissBackupReminder}

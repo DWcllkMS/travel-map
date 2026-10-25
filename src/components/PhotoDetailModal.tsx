@@ -1,6 +1,8 @@
-import React from 'react';
-import { Award, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Award, X, RotateCw } from 'lucide-react';
 import type { PhotoRecord, ThumbnailRecord } from '../types';
+import { rotateDataUrl90Clockwise } from '../services/exif';
+import { db } from '../services/db';
 
 interface PhotoDetailModalProps {
   photo?: PhotoRecord;
@@ -15,13 +17,56 @@ export const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
 }) => {
   if (!photo && !thumb) return null;
 
+  const [currentThumb, setCurrentThumb] = useState<ThumbnailRecord | undefined>(thumb);
+  const [rotating, setRotating] = useState(false);
+
+  useEffect(() => {
+    setCurrentThumb(thumb);
+    if (!thumb && photo?.thumbId) {
+      db.thumbs.get(photo.thumbId).then(t => {
+        if (t) setCurrentThumb(t);
+      }).catch(() => {});
+    }
+  }, [thumb, photo?.thumbId]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ id: string; dataUrl: string }>).detail;
+      if (detail?.id && currentThumb?.id && detail.id === currentThumb.id) {
+        setCurrentThumb(prev => (prev ? { ...prev, dataUrl: detail.dataUrl } : prev));
+      }
+    };
+    window.addEventListener('thumb-updated', handler);
+    return () => window.removeEventListener('thumb-updated', handler);
+  }, [currentThumb?.id]);
+
+  const handleRotate = async () => {
+    if (!currentThumb?.id || !currentThumb.dataUrl || rotating) return;
+    setRotating(true);
+    try {
+      const rotated = await rotateDataUrl90Clockwise(currentThumb.dataUrl);
+      await db.thumbs.update(currentThumb.id, { dataUrl: rotated });
+      setCurrentThumb({ ...currentThumb, dataUrl: rotated });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('thumb-updated', {
+            detail: { id: currentThumb.id, dataUrl: rotated }
+          })
+        );
+      }
+    } catch {
+    } finally {
+      setRotating(false);
+    }
+  };
+
   const proofLabels = {
     gold: 'Золотое доказательство (GPS в EXIF/видео)',
     silver: 'Серебряное доказательство (подтверждено нейросетью)',
     bronze: 'Бронзовая ручная отметка'
   };
 
-  const takenDate = photo?.takenAt || thumb?.takenAt;
+  const takenDate = photo?.takenAt || currentThumb?.takenAt;
   const proof = photo?.proof || 'gold';
 
   return (
@@ -29,14 +74,29 @@ export const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
       <div className="photo-modal-card" onClick={e => e.stopPropagation()}>
         <div className="modal-top">
           <span className="modal-title">Детали снимка</span>
-          <button className="close-btn" onClick={onClose} aria-label="Закрыть">
-            <X size={18} />
-          </button>
+          <div className="modal-top-actions">
+            {currentThumb?.dataUrl && (
+              <button
+                type="button"
+                className="rotate-btn"
+                onClick={handleRotate}
+                title="Повернуть на 90°"
+                aria-label="Повернуть"
+                disabled={rotating}
+              >
+                <RotateCw size={15} />
+                <span>Повернуть</span>
+              </button>
+            )}
+            <button className="close-btn" onClick={onClose} aria-label="Закрыть">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
-        {thumb?.dataUrl && (
+        {currentThumb?.dataUrl && (
           <div className="preview-container">
-            <img src={thumb.dataUrl} alt="Фотоснимок" />
+            <img src={currentThumb.dataUrl} alt="Фотоснимок" />
           </div>
         )}
 
@@ -114,6 +174,36 @@ export const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
           display: flex;
           justify-content: space-between;
           align-items: center;
+          gap: 12px;
+        }
+
+        .modal-top-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .rotate-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: var(--bg-3);
+          border: 1px solid var(--border);
+          color: var(--text);
+          padding: 6px 12px;
+          border-radius: var(--radius-sm);
+          font-size: 13px;
+          cursor: pointer;
+          transition: background var(--transition);
+        }
+
+        .rotate-btn:hover:not(:disabled) {
+          background: var(--border);
+        }
+
+        .rotate-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
 
         .modal-title {
@@ -125,7 +215,13 @@ export const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
         .close-btn {
           font-size: 16px;
           color: var(--muted);
+          background: transparent;
+          border: none;
           padding: 4px;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
         }
 
         .preview-container {
@@ -191,6 +287,7 @@ export const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
           border-radius: var(--radius-sm);
           font-weight: 600;
           text-align: center;
+          cursor: pointer;
         }
 
         .done-btn:hover {

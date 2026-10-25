@@ -7,6 +7,13 @@ export interface ExifExtractionResult {
   takenAt?: string;
   thumbnailDataUrl?: string;
   gpsRedacted?: boolean;
+  orientation?: number;
+}
+
+export interface OrientationTransform {
+  width: number;
+  height: number;
+  matrix: [number, number, number, number, number, number];
 }
 
 export function isValidCoordinate(lat: number | undefined, lon: number | undefined): boolean {
@@ -43,6 +50,86 @@ const METADATA_TIMEOUT_MS = 20000;
 const THUMBNAIL_TIMEOUT_MS = 10000;
 const MAX_BITMAP_SOURCE_BYTES = 25 * 1024 * 1024;
 
+export function getOrientationTransform(orientation: number, width: number, height: number): OrientationTransform {
+  switch (orientation) {
+    case 2:
+      return { width, height, matrix: [-1, 0, 0, 1, width, 0] };
+    case 3:
+      return { width, height, matrix: [-1, 0, 0, -1, width, height] };
+    case 4:
+      return { width, height, matrix: [1, 0, 0, -1, 0, height] };
+    case 5:
+      return { width: height, height: width, matrix: [0, 1, 1, 0, 0, 0] };
+    case 6:
+      return { width: height, height: width, matrix: [0, 1, -1, 0, height, 0] };
+    case 7:
+      return { width: height, height: width, matrix: [0, -1, -1, 0, height, width] };
+    case 8:
+      return { width: height, height: width, matrix: [0, -1, 1, 0, 0, width] };
+    case 1:
+    default:
+      return { width, height, matrix: [1, 0, 0, 1, 0, 0] };
+  }
+}
+
+export function rotateDataUrl90Clockwise(dataUrl: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (typeof document === 'undefined') {
+      resolve(dataUrl);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalHeight || img.height;
+      canvas.height = img.naturalWidth || img.width;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+      ctx.translate(canvas.width, 0);
+      ctx.rotate(Math.PI / 2);
+      ctx.drawImage(img, 0, 0);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => reject(new Error('Не удалось повернуть изображение'));
+    img.src = dataUrl;
+  });
+}
+
+function orientThumbnailBlob(blob: Blob, orientation: number): Promise<string> {
+  if (orientation <= 1 || orientation > 8 || typeof document === 'undefined') {
+    return blobToDataUrl(blob);
+  }
+  return new Promise<string>((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const sw = img.naturalWidth || img.width;
+      const sh = img.naturalHeight || img.height;
+      const { width, height, matrix } = getOrientationTransform(orientation, sw, sh);
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        blobToDataUrl(blob).then(resolve).catch(() => resolve(''));
+        return;
+      }
+      ctx.setTransform(matrix[0], matrix[1], matrix[2], matrix[3], matrix[4], matrix[5]);
+      ctx.drawImage(img, 0, 0);
+      resolve(canvas.toDataURL('image/jpeg', 0.7));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      blobToDataUrl(blob).then(resolve).catch(() => resolve(''));
+    };
+    img.src = url;
+  });
+}
+
 export async function extractPhotoMetadata(file: File | Blob): Promise<ExifExtractionResult> {
   const result: ExifExtractionResult = {};
 
@@ -54,6 +141,7 @@ export async function extractPhotoMetadata(file: File | Blob): Promise<ExifExtra
         exif: true,
         gps: true,
         pick: [
+          'Orientation',
           'DateTimeOriginal',
           'CreateDate',
           'ModifyDate',
@@ -74,6 +162,22 @@ export async function extractPhotoMetadata(file: File | Blob): Promise<ExifExtra
     if (err instanceof StepTimeoutError) throw err;
     data = undefined;
   }
+
+  let orientation = 1;
+  if (data?.Orientation !== undefined) {
+    let parsed = Number(data.Orientation);
+    if (!Number.isInteger(parsed)) {
+      try {
+        parsed = Number(await exifr.orientation(file));
+      } catch {
+        parsed = 1;
+      }
+    }
+    if (parsed >= 1 && parsed <= 8) {
+      orientation = parsed;
+    }
+  }
+  result.orientation = orientation;
 
   if (data) {
     const hasGpsTags =
@@ -102,7 +206,7 @@ export async function extractPhotoMetadata(file: File | Blob): Promise<ExifExtra
   }
 
   try {
-    result.thumbnailDataUrl = await withTimeout(buildThumbnail(file), THUMBNAIL_TIMEOUT_MS, 'Превью');
+    result.thumbnailDataUrl = await withTimeout(buildThumbnail(file, orientation), THUMBNAIL_TIMEOUT_MS, 'Превью');
   } catch {
     result.thumbnailDataUrl = undefined;
   }
@@ -110,12 +214,12 @@ export async function extractPhotoMetadata(file: File | Blob): Promise<ExifExtra
   return result;
 }
 
-async function buildThumbnail(file: File | Blob): Promise<string | undefined> {
+async function buildThumbnail(file: File | Blob, orientation: number = 1): Promise<string | undefined> {
   try {
     const thumbBuffer = await exifr.thumbnail(file);
     if (thumbBuffer && thumbBuffer.byteLength > 0) {
       const blob = new Blob([thumbBuffer as any], { type: 'image/jpeg' });
-      return await blobToDataUrl(blob);
+      return await orientThumbnailBlob(blob, orientation);
     }
   } catch {
   }
@@ -127,7 +231,8 @@ async function buildThumbnail(file: File | Blob): Promise<string | undefined> {
   try {
     const bitmap = await createImageBitmap(file, {
       resizeWidth: 320,
-      resizeQuality: 'medium'
+      resizeQuality: 'medium',
+      imageOrientation: 'from-image'
     });
     const canvas = document.createElement('canvas');
     canvas.width = bitmap.width;

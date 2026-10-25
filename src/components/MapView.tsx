@@ -7,6 +7,8 @@ import { TopBar, type MapFilters } from './TopBar';
 import { DistrictSheet, type SelectedEntity } from './DistrictSheet';
 import { SightSheet, type SelectedSightEntity } from './SightSheet';
 import { PhotoDetailModal } from './PhotoDetailModal';
+import { TimelapseControlPanel } from './TimelapseControlPanel';
+import { buildTimelapseSteps, computeBaseStepDuration, type TimelapseStep } from '../services/timelapseService';
 import { globalGeoIndex } from '../services/geoIndex';
 import { globalSightsIndex } from '../services/sightsIndex';
 import { db, updateSettings } from '../services/db';
@@ -25,6 +27,7 @@ interface MapViewProps {
   pickLocationMode?: boolean;
   onLocationPicked?: (loc: { lat: number; lon: number; district?: GeoDistrict; region?: GeoRegion }) => void;
   fitBoundsTarget?: { bounds: [[number, number], [number, number]]; timestamp: number } | null;
+  onTimelapseActiveChange?: (active: boolean) => void;
 }
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -38,7 +41,8 @@ export const MapView: React.FC<MapViewProps> = ({
   onOpenLevelDetails,
   pickLocationMode,
   onLocationPicked,
-  fitBoundsTarget
+  fitBoundsTarget,
+  onTimelapseActiveChange
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreInstance | null>(null);
@@ -57,6 +61,28 @@ export const MapView: React.FC<MapViewProps> = ({
   const [selectedEntity, setSelectedEntity] = useState<SelectedEntity | null>(null);
   const [selectedSightEntity, setSelectedSightEntity] = useState<SelectedSightEntity | null>(null);
   const [selectedPhotoModal, setSelectedPhotoModal] = useState<{ photo?: PhotoRecord; thumb?: ThumbnailRecord } | null>(null);
+
+  const [timelapseActive, setTimelapseActive] = useState(false);
+  const timelapseActiveRef = useRef(timelapseActive);
+  timelapseActiveRef.current = timelapseActive;
+
+  const [timelapseSteps, setTimelapseSteps] = useState<TimelapseStep[]>([]);
+  const timelapseStepsRef = useRef<TimelapseStep[]>([]);
+  timelapseStepsRef.current = timelapseSteps;
+  const [timelapseIndex, setTimelapseIndex] = useState(0);
+  const timelapseIndexRef = useRef(timelapseIndex);
+  timelapseIndexRef.current = timelapseIndex;
+
+  const [timelapsePlaying, setTimelapsePlaying] = useState(false);
+  const [timelapseSpeed, setTimelapseSpeed] = useState(1);
+  const [timelapseFollowCamera, setTimelapseFollowCamera] = useState(true);
+  const timelapseFollowCameraRef = useRef(timelapseFollowCamera);
+  timelapseFollowCameraRef.current = timelapseFollowCamera;
+  const [timelapseNotification, setTimelapseNotification] = useState<string | null>(null);
+  const [timelapseFinished, setTimelapseFinished] = useState(false);
+  const applyTimelapseStepRef = useRef<(targetIndex: number, isForwardDelta?: boolean) => void>(() => {});
+
+  const canTimelapse = photos.length > 0 || marks.some(m => m.markType === 'visited_manual');
   const activeCardRef = useRef<{ district?: GeoDistrict; region?: GeoRegion } | null>(null);
   const activeSightCardRef = useRef<string | null>(null);
 
@@ -80,6 +106,12 @@ export const MapView: React.FC<MapViewProps> = ({
 
   const getHomePoint = () =>
     homeRegionIdRef.current ? globalGeoIndex.getRegionCenter(homeRegionIdRef.current) : undefined;
+
+  useEffect(() => {
+    return () => {
+      onTimelapseActiveChange?.(false);
+    };
+  }, [onTimelapseActiveChange]);
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -112,6 +144,10 @@ export const MapView: React.FC<MapViewProps> = ({
           }
         } catch {
         }
+        if (timelapseActiveRef.current) {
+          applyTimelapseStepRef.current(timelapseIndexRef.current, false);
+          return;
+        }
         applyLayerVisibility();
         updateMapFeatureStates();
         updatePhotosGeoJson();
@@ -128,6 +164,7 @@ export const MapView: React.FC<MapViewProps> = ({
     });
 
     map.on('click', (e) => {
+      if (timelapseActiveRef.current) return;
       if (pickLocationModeRef.current && onLocationPickedRef.current) {
         const match = globalGeoIndex.findDistrictAndRegion(e.lngLat.lat, e.lngLat.lng);
         onLocationPickedRef.current({
@@ -274,6 +311,7 @@ export const MapView: React.FC<MapViewProps> = ({
   }, [filters]);
 
   useEffect(() => {
+    if (timelapseActiveRef.current) return;
     updateMapFeatureStates();
     updatePhotosGeoJson();
 
@@ -559,6 +597,221 @@ export const MapView: React.FC<MapViewProps> = ({
     setSelectedEntity({ ...selectedEntity, isHome: true, distanceBonus: undefined });
   };
 
+  const applyTimelapseStep = (targetIndex: number, isForwardDelta: boolean = false) => {
+    const map = mapRef.current;
+    if (!map || !map.style) return;
+    const steps = timelapseStepsRef.current;
+    const step = steps[targetIndex];
+    if (!step) return;
+
+    if (isForwardDelta) {
+      for (const d of step.districtsDelta) {
+        map.setFeatureState({ source: 'districtsSource', id: d.id }, { visited: true, proof: d.proof, wishlist: false });
+      }
+      for (const r of step.regionsDelta) {
+        map.setFeatureState({ source: 'regionsSource', id: r.id }, { visited: true, proof: r.proof, wishlist: false, hasDistricts: r.hasDistricts });
+      }
+    } else {
+      map.removeFeatureState({ source: 'districtsSource' });
+      map.removeFeatureState({ source: 'regionsSource' });
+
+      const targetDistrictsMap = new Map<string, ProofLevel>();
+      const targetRegionsMap = new Map<string, { proof: ProofLevel; hasDistricts: boolean }>();
+
+      for (let i = 0; i <= targetIndex; i++) {
+        const st = steps[i];
+        for (const d of st.districtsDelta) {
+          targetDistrictsMap.set(d.id, d.proof);
+        }
+        for (const r of st.regionsDelta) {
+          targetRegionsMap.set(r.id, { proof: r.proof, hasDistricts: r.hasDistricts });
+        }
+      }
+
+      for (const [dId, proof] of targetDistrictsMap.entries()) {
+        map.setFeatureState({ source: 'districtsSource', id: dId }, { visited: true, proof, wishlist: false });
+      }
+      for (const [rId, { proof, hasDistricts }] of targetRegionsMap.entries()) {
+        map.setFeatureState({ source: 'regionsSource', id: rId }, { visited: true, proof, wishlist: false, hasDistricts });
+      }
+    }
+
+    const source = map.getSource('photosSource') as GeoJSONSource | undefined;
+    if (source) {
+      source.setData({
+        type: 'FeatureCollection',
+        features: step.cumulativePhotos.map(p => ({
+          type: 'Feature',
+          id: p.id,
+          properties: {
+            id: p.id,
+            proof: p.proof,
+            takenAt: p.takenAt,
+            districtId: p.districtId,
+            regionId: p.regionId
+          },
+          geometry: {
+            type: 'Point',
+            coordinates: [p.lon, p.lat]
+          }
+        }))
+      });
+    }
+
+    fogRef.current?.setH3CellsFromPhotos(step.cumulativeH3Cells);
+
+    if (timelapseFollowCameraRef.current && step.center) {
+      try {
+        const bounds = map.getBounds();
+        if (!bounds.contains(step.center)) {
+          const currentZoom = map.getZoom();
+          map.easeTo({
+            center: step.center,
+            zoom: Math.min(currentZoom, 5),
+            duration: 600
+          });
+        }
+      } catch {}
+    }
+
+    if (step.newDiscoveries.length > 0) {
+      setTimelapseNotification(step.newDiscoveries.join(' · '));
+    } else {
+      setTimelapseNotification(null);
+    }
+  };
+  applyTimelapseStepRef.current = applyTimelapseStep;
+
+  useEffect(() => {
+    if (!timelapseActive || !timelapsePlaying || timelapseSteps.length === 0) return;
+
+    const base = computeBaseStepDuration(timelapseSteps.length);
+    const intervalMs = Math.max(50, Math.round(base / timelapseSpeed));
+
+    const timer = setTimeout(() => {
+      const cur = timelapseIndexRef.current;
+      if (cur < timelapseSteps.length - 1) {
+        const next = cur + 1;
+        setTimelapseIndex(next);
+        applyTimelapseStep(next, true);
+      } else {
+        setTimelapsePlaying(false);
+        setTimelapseFinished(true);
+      }
+    }, intervalMs);
+
+    return () => clearTimeout(timer);
+  }, [timelapseActive, timelapsePlaying, timelapseIndex, timelapseSpeed, timelapseSteps]);
+
+  const handleStartTimelapse = () => {
+    const steps = buildTimelapseSteps(photosRef.current, marksRef.current, {
+      getRegionName: id => globalGeoIndex.getRegionById(id)?.name || id,
+      getCountryName: c => globalGeoIndex.getCountryById(c)?.name || c,
+      getDistrictById: id => globalGeoIndex.getAllDistricts().find(d => d.id === id),
+      getRegionCenter: id => {
+        const c = globalGeoIndex.getRegionCenter(id);
+        return c ? [c.lon, c.lat] : undefined;
+      },
+      hasDistricts: id => globalGeoIndex.getAllDistricts().some(d => d.regionId === id)
+    });
+    if (steps.length === 0) return;
+
+    setSelectedEntity(null);
+    setSelectedSightEntity(null);
+    setSelectedPhotoModal(null);
+    activeCardRef.current = null;
+    activeSightCardRef.current = null;
+
+    setTimelapseSteps(steps);
+    setTimelapseIndex(0);
+    setTimelapseActive(true);
+    setTimelapsePlaying(true);
+    setTimelapseFinished(false);
+    onTimelapseActiveChange?.(true);
+
+    const map = mapRef.current;
+    if (map && map.style) {
+      map.removeFeatureState({ source: 'districtsSource' });
+      map.removeFeatureState({ source: 'regionsSource' });
+      const source = map.getSource('photosSource') as GeoJSONSource | undefined;
+      if (source) {
+        source.setData({
+          type: 'FeatureCollection',
+          features: steps[0].cumulativePhotos.map(p => ({
+            type: 'Feature',
+            id: p.id,
+            properties: { id: p.id, proof: p.proof, takenAt: p.takenAt, districtId: p.districtId, regionId: p.regionId },
+            geometry: { type: 'Point', coordinates: [p.lon, p.lat] }
+          }))
+        });
+      }
+      for (const d of steps[0].districtsDelta) {
+        map.setFeatureState({ source: 'districtsSource', id: d.id }, { visited: true, proof: d.proof, wishlist: false });
+      }
+      for (const r of steps[0].regionsDelta) {
+        map.setFeatureState({ source: 'regionsSource', id: r.id }, { visited: true, proof: r.proof, wishlist: false, hasDistricts: r.hasDistricts });
+      }
+      fogRef.current?.setH3CellsFromPhotos(steps[0].cumulativeH3Cells);
+      if (steps[0].center) {
+        const currentZoom = map.getZoom();
+        map.easeTo({
+          center: steps[0].center,
+          zoom: Math.min(currentZoom, 4.5),
+          duration: 600
+        });
+      }
+      if (steps[0].newDiscoveries.length > 0) {
+        setTimelapseNotification(steps[0].newDiscoveries.join(' · '));
+      } else {
+        setTimelapseNotification(null);
+      }
+    }
+  };
+
+  const handleCloseTimelapse = () => {
+    setTimelapseActive(false);
+    setTimelapsePlaying(false);
+    setTimelapseFinished(false);
+    setTimelapseNotification(null);
+    onTimelapseActiveChange?.(false);
+    const map = mapRef.current;
+    if (!map || !map.style) return;
+    try {
+      if (!map.hasImage('hatch-red')) {
+        map.addImage('hatch-red', createHatchImage());
+      }
+    } catch {}
+    applyLayerVisibility();
+    updateMapFeatureStates();
+    updatePhotosGeoJson();
+    if (fogRef.current) {
+      const h3s = photosRef.current.map(p => p.h3).filter(Boolean);
+      fogRef.current.setH3CellsFromPhotos(h3s);
+    }
+  };
+
+  const handleScrub = (idx: number) => {
+    setTimelapseIndex(idx);
+    setTimelapseFinished(idx === timelapseSteps.length - 1);
+    applyTimelapseStep(idx, false);
+  };
+
+  const handleReplay = () => {
+    setTimelapseIndex(0);
+    setTimelapseFinished(false);
+    setTimelapsePlaying(true);
+    applyTimelapseStep(0, false);
+    const map = mapRef.current;
+    if (map && map.style && timelapseStepsRef.current[0]?.center) {
+      const currentZoom = map.getZoom();
+      map.easeTo({
+        center: timelapseStepsRef.current[0].center,
+        zoom: Math.min(currentZoom, 4.5),
+        duration: 600
+      });
+    }
+  };
+
   return (
     <div className="map-view-wrapper">
       <TopBar
@@ -566,6 +819,9 @@ export const MapView: React.FC<MapViewProps> = ({
         filters={filters}
         onFilterChange={setFilters}
         onOpenLevelDetails={onOpenLevelDetails}
+        canTimelapse={canTimelapse}
+        timelapseActive={timelapseActive}
+        onStartTimelapse={handleStartTimelapse}
       />
 
       {pickLocationMode && (
@@ -606,6 +862,25 @@ export const MapView: React.FC<MapViewProps> = ({
         thumb={selectedPhotoModal?.thumb}
         onClose={() => setSelectedPhotoModal(null)}
       />
+
+      {timelapseActive && timelapseSteps[timelapseIndex] && (
+        <TimelapseControlPanel
+          step={timelapseSteps[timelapseIndex]}
+          stepIndex={timelapseIndex}
+          totalSteps={timelapseSteps.length}
+          isPlaying={timelapsePlaying}
+          isFinished={timelapseFinished}
+          speed={timelapseSpeed}
+          followCamera={timelapseFollowCamera}
+          notification={timelapseNotification}
+          onTogglePlay={() => setTimelapsePlaying(!timelapsePlaying)}
+          onScrub={handleScrub}
+          onSpeedChange={setTimelapseSpeed}
+          onToggleFollow={() => setTimelapseFollowCamera(!timelapseFollowCamera)}
+          onReplay={handleReplay}
+          onClose={handleCloseTimelapse}
+        />
+      )}
 
       <style>{`
         .map-view-wrapper {

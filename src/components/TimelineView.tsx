@@ -16,8 +16,10 @@ import type {
   PhotoRecord,
   MarkRecord,
   UnlockedAchievementRecord,
-  ProofLevel
+  ProofLevel,
+  ThumbnailRecord
 } from '../types';
+import { PhotoDetailModal } from './PhotoDetailModal';
 import {
   buildTimelineFeed,
   drawYearRecapCanvas,
@@ -51,6 +53,21 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [sharing, setSharing] = useState(false);
   const [shareFeedback, setShareFeedback] = useState(false);
+  const [selectedModalThumb, setSelectedModalThumb] = useState<{
+    photo?: PhotoRecord;
+    thumb?: ThumbnailRecord;
+  } | null>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ id: string; dataUrl: string }>).detail;
+      if (detail?.id && detail?.dataUrl) {
+        setThumbnails(prev => ({ ...prev, [detail.id]: detail.dataUrl }));
+      }
+    };
+    window.addEventListener('thumb-updated', handler);
+    return () => window.removeEventListener('thumb-updated', handler);
+  }, []);
 
   const sightsMatch = useMemo(() => {
     return globalSightsIndex.matchPhotos(photos);
@@ -384,6 +401,15 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           )}
         </section>
       </div>
+
+      {selectedModalThumb && (
+        <PhotoDetailModal
+          photo={selectedModalThumb.photo}
+          thumb={selectedModalThumb.thumb}
+          onClose={() => setSelectedModalThumb(null)}
+        />
+      )}
+
       <style>{timelineStyles}</style>
     </div>
   );
@@ -461,7 +487,24 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
               const url = thumbnails[tid];
               if (!url) return null;
               return (
-                <div key={tid} className="thumb-item">
+                <div
+                  key={tid}
+                  className="thumb-item"
+                  onClick={e => {
+                    e.stopPropagation();
+                    const photo = photos.find(p => p.thumbId === tid);
+                    setSelectedModalThumb({
+                      photo,
+                      thumb: {
+                        id: tid,
+                        groupKey: '',
+                        dataUrl: url,
+                        takenAt: photo?.takenAt || ''
+                      }
+                    });
+                  }}
+                  title="Детали фото / Повернуть"
+                >
                   <img src={url} alt="Превью поездки" className="thumb-img" />
                 </div>
               );

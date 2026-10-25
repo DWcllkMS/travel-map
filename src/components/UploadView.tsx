@@ -57,6 +57,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
     contested: number;
     newThumbs: number;
     gpsRedacted: number;
+    updatedThumbs: number;
   } | null>(null);
 
   const processFile = async (
@@ -67,7 +68,10 @@ export const UploadView: React.FC<UploadViewProps> = ({
     pendingThumbs: ThumbnailRecord[],
     pendingUnlocated: UnlocatedPhotoItem[],
     pendingContested: ContestedItem[],
-    redactedCounter: { count: number }
+    redactedCounter: { count: number },
+    existingPhotos: PhotoRecord[],
+    updatedThumbsCounter: { count: number },
+    pendingPhotoUpdates: Array<{ id: string; thumbId: string }>
   ) => {
     const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|m4v)$/i.test(file.name);
     let lat: number | undefined;
@@ -104,6 +108,37 @@ export const UploadView: React.FC<UploadViewProps> = ({
     const photoId = `photo-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`;
 
     if (lat !== undefined && lon !== undefined) {
+      const matchExisting =
+        existingPhotos.find(p =>
+          p.takenAt === takenAt &&
+          Math.abs(p.lat - lat!) < 1e-5 &&
+          Math.abs(p.lon - lon!) < 1e-5
+        ) ||
+        pendingPhotos.find(p =>
+          p.takenAt === takenAt &&
+          Math.abs(p.lat - lat!) < 1e-5 &&
+          Math.abs(p.lon - lon!) < 1e-5
+        );
+
+      if (matchExisting) {
+        if (thumbUrl) {
+          const groupKey = computeGroupKey(lat, lon, takenAt);
+          const thumbId = matchExisting.thumbId || `thumb-${Date.now()}-${index}`;
+          if (!matchExisting.thumbId) {
+            matchExisting.thumbId = thumbId;
+            pendingPhotoUpdates.push({ id: matchExisting.id, thumbId });
+          }
+          pendingThumbs.push({
+            id: thumbId,
+            groupKey,
+            dataUrl: thumbUrl,
+            takenAt
+          });
+          updatedThumbsCounter.count++;
+        }
+        return;
+      }
+
       const h3Cell = latLngToCell(lat, lon, 6);
       const groupKey = computeGroupKey(lat, lon, takenAt);
 
@@ -155,13 +190,18 @@ export const UploadView: React.FC<UploadViewProps> = ({
         contestedDistricts: match.contestedDistricts?.map(d => d.id)
       });
     } else {
-      pendingUnlocated.push({
-        id: photoId,
-        name: file.name,
-        dataUrl: thumbUrl,
-        file,
-        takenAt
-      });
+      const alreadyInUnlocated =
+        unlocatedList.some(u => u.name === file.name && u.takenAt === takenAt && u.file?.size === file.size) ||
+        pendingUnlocated.some(u => u.name === file.name && u.takenAt === takenAt && u.file?.size === file.size);
+      if (!alreadyInUnlocated) {
+        pendingUnlocated.push({
+          id: photoId,
+          name: file.name,
+          dataUrl: thumbUrl,
+          file,
+          takenAt
+        });
+      }
     }
   };
 
@@ -186,7 +226,16 @@ export const UploadView: React.FC<UploadViewProps> = ({
     const pendingContested: ContestedItem[] = [];
     const failed: FailedFile[] = [];
     const redactedCounter = { count: 0 };
+    const updatedThumbsCounter = { count: 0 };
+    const pendingPhotoUpdates: Array<{ id: string; thumbId: string }> = [];
     let done = 0;
+
+    let existingPhotos: PhotoRecord[] = [];
+    try {
+      existingPhotos = await db.photos.toArray();
+    } catch {
+      existingPhotos = [];
+    }
 
     const CONCURRENCY = 4;
     let nextIndex = 0;
@@ -204,7 +253,10 @@ export const UploadView: React.FC<UploadViewProps> = ({
             pendingThumbs,
             pendingUnlocated,
             pendingContested,
-            redactedCounter
+            redactedCounter,
+            existingPhotos,
+            updatedThumbsCounter,
+            pendingPhotoUpdates
           );
         } catch (err) {
           failed.push({ name: file.name, reason: describeError(err) });
@@ -226,6 +278,9 @@ export const UploadView: React.FC<UploadViewProps> = ({
           if (pendingPhotos.length > 0) {
             await db.photos.bulkPut(pendingPhotos);
           }
+          for (const upd of pendingPhotoUpdates) {
+            await db.photos.update(upd.id, { thumbId: upd.thumbId });
+          }
         }),
         30000,
         'Сохранение в память браузера'
@@ -239,7 +294,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
         withoutGps: pendingUnlocated.length,
         contested: pendingContested.length,
         newThumbs: pendingThumbs.length,
-        gpsRedacted: redactedCounter.count
+        gpsRedacted: redactedCounter.count,
+        updatedThumbs: updatedThumbsCounter.count
       });
       onImportDone();
     } catch (err) {
@@ -400,6 +456,12 @@ export const UploadView: React.FC<UploadViewProps> = ({
                 <span className="stat-label">Сохранено превью</span>
                 <span className="stat-val">{importSummary.newThumbs}</span>
               </div>
+              {importSummary.updatedThumbs > 0 && (
+                <div className="summary-stat">
+                  <span className="stat-label">Уже было — превью обновлено</span>
+                  <span className="stat-val accent-text">{importSummary.updatedThumbs}</span>
+                </div>
+              )}
             </div>
           </div>
         )}

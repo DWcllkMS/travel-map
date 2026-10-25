@@ -1,4 +1,5 @@
 import React from 'react';
+import { History } from 'lucide-react';
 import type { UserLevelInfo } from '../types';
 
 export interface MapFilters {
@@ -14,13 +15,19 @@ interface TopBarProps {
   filters: MapFilters;
   onFilterChange: (filters: MapFilters) => void;
   onOpenLevelDetails?: () => void;
+  canTimelapse?: boolean;
+  onStartTimelapse?: () => void;
+  timelapseActive?: boolean;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
   levelInfo,
   filters,
   onFilterChange,
-  onOpenLevelDetails
+  onOpenLevelDetails,
+  canTimelapse,
+  onStartTimelapse,
+  timelapseActive
 }) => {
   const toggleFilter = (key: keyof MapFilters) => {
     onFilterChange({
@@ -84,6 +91,16 @@ export const TopBar: React.FC<TopBarProps> = ({
         >
           <span className="chip-indicator sights-indicator" />
           Места
+        </button>
+
+        <button
+          className={`chip timelapse-chip ${timelapseActive ? 'active' : ''}`}
+          disabled={!canTimelapse}
+          onClick={onStartTimelapse}
+          title={canTimelapse ? 'Запустить таймлапс' : 'Нет фото или отметок для таймлапса'}
+        >
+          <History size={13} />
+          <span>Таймлапс</span>
         </button>
       </div>
 
@@ -190,6 +207,17 @@ export const TopBar: React.FC<TopBarProps> = ({
         .chip:hover {
           color: var(--text);
           background: var(--bg-3);
+        }
+
+        .chip:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+        }
+
+        .timelapse-chip.active {
+          background: var(--accent);
+          border-color: var(--accent);
+          color: var(--on-accent);
         }
 
         .chip.active {

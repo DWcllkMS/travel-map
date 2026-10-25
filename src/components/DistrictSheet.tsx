@@ -1,6 +1,8 @@
-import React from 'react';
-import { Award, X, Star, Check, Plus, Home } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Award, X, Star, Check, Plus, Home, RotateCw } from 'lucide-react';
 import type { GeoDistrict, GeoRegion, ThumbnailRecord, ProofLevel } from '../types';
+import { rotateDataUrl90Clockwise } from '../services/exif';
+import { db } from '../services/db';
 
 export interface SelectedEntity {
   district?: GeoDistrict;
@@ -33,6 +35,19 @@ export const DistrictSheet: React.FC<DistrictSheetProps> = ({
   onSelectPhotoThumb
 }) => {
   if (!entity) return null;
+
+  const [thumbOverrides, setThumbOverrides] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ id: string; dataUrl: string }>).detail;
+      if (detail?.id && detail?.dataUrl) {
+        setThumbOverrides(prev => ({ ...prev, [detail.id]: detail.dataUrl }));
+      }
+    };
+    window.addEventListener('thumb-updated', handler);
+    return () => window.removeEventListener('thumb-updated', handler);
+  }, []);
 
   const title = entity.district ? entity.district.name : (entity.region ? entity.region.name : 'Неизвестное место');
   const parentSubtitle = entity.district
@@ -126,18 +141,43 @@ export const DistrictSheet: React.FC<DistrictSheetProps> = ({
           <div className="gallery-section">
             <h4 className="section-heading">Фотографии из этой локации</h4>
             <div className="gallery-scroll custom-scrollbar">
-              {entity.thumbnails.map(thumb => (
-                <div
-                  key={thumb.id}
-                  className="gallery-item"
-                  onClick={() => onSelectPhotoThumb && onSelectPhotoThumb(thumb)}
-                >
-                  <img src={thumb.dataUrl} alt="Фото" loading="lazy" />
-                  {thumb.takenAt && (
-                    <span className="gallery-date">{thumb.takenAt.slice(0, 10)}</span>
-                  )}
-                </div>
-              ))}
+              {entity.thumbnails.map(thumb => {
+                const currentUrl = thumbOverrides[thumb.id] || thumb.dataUrl;
+                const activeThumb = { ...thumb, dataUrl: currentUrl };
+                return (
+                  <div
+                    key={thumb.id}
+                    className="gallery-item"
+                    onClick={() => onSelectPhotoThumb && onSelectPhotoThumb(activeThumb)}
+                  >
+                    <img src={currentUrl} alt="Фото" loading="lazy" />
+                    <button
+                      type="button"
+                      className="thumb-rotate-quick-btn"
+                      title="Повернуть"
+                      aria-label="Повернуть"
+                      onClick={async e => {
+                        e.stopPropagation();
+                        try {
+                          const rotated = await rotateDataUrl90Clockwise(currentUrl);
+                          await db.thumbs.update(thumb.id, { dataUrl: rotated });
+                          setThumbOverrides(prev => ({ ...prev, [thumb.id]: rotated }));
+                          window.dispatchEvent(
+                            new CustomEvent('thumb-updated', {
+                              detail: { id: thumb.id, dataUrl: rotated }
+                            })
+                          );
+                        } catch {}
+                      }}
+                    >
+                      <RotateCw size={12} />
+                    </button>
+                    {thumb.takenAt && (
+                      <span className="gallery-date">{thumb.takenAt.slice(0, 10)}</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -377,6 +417,31 @@ export const DistrictSheet: React.FC<DistrictSheetProps> = ({
           position: relative;
           border: 1px solid var(--border);
           cursor: pointer;
+        }
+
+        .thumb-rotate-quick-btn {
+          position: absolute;
+          top: 3px;
+          right: 3px;
+          width: 20px;
+          height: 20px;
+          border-radius: var(--radius-sm);
+          background: var(--bg-2);
+          border: 1px solid var(--border);
+          color: var(--text);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          opacity: 0.85;
+          transition: opacity var(--transition), background var(--transition);
+          padding: 0;
+          z-index: 2;
+        }
+
+        .thumb-rotate-quick-btn:hover {
+          opacity: 1;
+          background: var(--bg-3);
         }
 
         .gallery-item img {
