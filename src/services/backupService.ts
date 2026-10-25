@@ -4,8 +4,9 @@ import type { PhotoRecord, ThumbnailRecord, MarkRecord, UnlockedAchievementRecor
 export interface BackupData {
   version: string;
   exportedAt: string;
+  includesThumbs?: boolean;
   photos: PhotoRecord[];
-  thumbs: ThumbnailRecord[];
+  thumbs?: ThumbnailRecord[];
   marks: MarkRecord[];
   achievements: UnlockedAchievementRecord[];
   settings?: UserSettings;
@@ -18,18 +19,25 @@ export interface MergeResult {
   totalPhotos: number;
 }
 
-export async function createBackup(): Promise<BackupData> {
+export interface CreateBackupOptions {
+  includeThumbs?: boolean;
+}
+
+export async function createBackup(options: CreateBackupOptions = { includeThumbs: true }): Promise<BackupData> {
+  const includeThumbs = options.includeThumbs ?? true;
+
   const [photos, thumbs, marks, achievements, settings] = await Promise.all([
     db.photos.toArray(),
-    db.thumbs.toArray(),
+    includeThumbs ? db.thumbs.toArray() : Promise.resolve([]),
     db.marks.toArray(),
     db.achievements.toArray(),
     db.settings.get('default')
   ]);
 
   return {
-    version: '1.0.0',
+    version: '1.4.0',
     exportedAt: new Date().toISOString(),
+    includesThumbs: includeThumbs,
     photos,
     thumbs,
     marks,
@@ -38,20 +46,67 @@ export async function createBackup(): Promise<BackupData> {
   };
 }
 
-export function exportBackupToFile(backup: BackupData): void {
-  const json = JSON.stringify(backup, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
+export function serializeBackupToBlob(backup: BackupData): Blob {
+  const parts: string[] = [];
+
+  parts.push('{"version":' + JSON.stringify(backup.version || '1.4.0'));
+  parts.push(',"exportedAt":' + JSON.stringify(backup.exportedAt || new Date().toISOString()));
+  if (backup.includesThumbs !== undefined) {
+    parts.push(',"includesThumbs":' + JSON.stringify(backup.includesThumbs));
+  }
+  if (backup.settings) {
+    parts.push(',"settings":' + JSON.stringify(backup.settings));
+  }
+
+  function appendArray(key: string, arr?: any[]) {
+    parts.push(',"' + key + '":[');
+    if (arr && arr.length > 0) {
+      for (let i = 0; i < arr.length; i++) {
+        if (i > 0) parts.push(',');
+        parts.push(JSON.stringify(arr[i]));
+      }
+    }
+    parts.push(']');
+  }
+
+  appendArray('photos', backup.photos || []);
+  appendArray('thumbs', backup.thumbs || []);
+  appendArray('marks', backup.marks || []);
+  appendArray('achievements', backup.achievements || []);
+
+  parts.push('}');
+
+  return new Blob(parts, { type: 'application/json' });
+}
+
+export function exportBackupToFile(backup: BackupData, filename?: string): void {
+  const blob = serializeBackupToBlob(backup);
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const defaultFilename = backup.includesThumbs === false
+    ? `travel-map-backup-${dateStr}-no-photos.json`
+    : `travel-map-backup-${dateStr}.json`;
+  const name = filename || defaultFilename;
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  const dateStr = new Date().toISOString().slice(0, 10);
   a.href = url;
-  a.download = `travel-map-backup-${dateStr}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  a.download = name;
+  a.style.display = 'none';
+
+  if (typeof document !== 'undefined' && document.body) {
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 60000);
+  } else {
+    a.click();
+  }
 }
 
 export async function mergeBackup(backup: BackupData): Promise<MergeResult> {
-  if (!backup || !backup.photos || !backup.marks) {
+  if (!backup || !Array.isArray(backup.photos) || !Array.isArray(backup.marks)) {
     throw new Error('Некорректный формат файла бэкапа');
   }
 
@@ -73,6 +128,8 @@ export async function mergeBackup(backup: BackupData): Promise<MergeResult> {
         photo.createdAt = photo.createdAt || new Date().toISOString();
         await db.photos.put(photo);
         addedPhotos++;
+      } else if (!existing.thumbId && photo.thumbId) {
+        await db.photos.update(photo.id, { thumbId: photo.thumbId });
       }
     }
 

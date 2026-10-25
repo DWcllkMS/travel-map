@@ -423,9 +423,13 @@ export const App: React.FC = () => {
 
   const handleExportBackupNow = async () => {
     setShowBackupReminder(false);
-    const backup = await createBackup();
-    exportBackupToFile(backup);
-    await handleUpdateSettings({ lastBackupPrompt: new Date().toISOString() });
+    try {
+      const backup = await createBackup({ includeThumbs: false });
+      exportBackupToFile(backup);
+      await handleUpdateSettings({ lastBackupPrompt: new Date().toISOString() });
+    } catch (err: any) {
+      alert('Ошибка при сохранении бэкапа: ' + (err?.message || 'не удалось экспортировать данные'));
+    }
   };
 
   const handleRequestSilver = (photo: UnlocatedPhotoItem) => {

@@ -1,7 +1,8 @@
-import React, { useRef } from 'react';
-import { Home, Star, Globe, Settings, Save, FolderOpen } from 'lucide-react';
+import React, { useRef, useState, useEffect } from 'react';
+import { Home, Star, Globe, Settings, Save, FolderOpen, Images } from 'lucide-react';
 import type { StatsInfo, UserSettings, GeoRegion, MarkRecord } from '../types';
 import { createBackup, exportBackupToFile, mergeBackup } from '../services/backupService';
+import { db } from '../services/db';
 
 interface WishlistItem {
   mark: MarkRecord;
@@ -29,12 +30,35 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onRefreshData
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [thumbsCount, setThumbsCount] = useState<number | null>(null);
 
-  const handleExportBackup = async () => {
+  const refreshThumbsCount = () => {
+    db.thumbs.count().then(count => setThumbsCount(count)).catch(() => {});
+  };
+
+  useEffect(() => {
+    refreshThumbsCount();
+  }, []);
+
+  const handleExportBackupNoPhotos = async () => {
     try {
-      const backup = await createBackup();
+      const backup = await createBackup({ includeThumbs: false });
       exportBackupToFile(backup);
-    } catch {
+    } catch (err: any) {
+      alert('Ошибка при сохранении бэкапа: ' + (err?.message || 'не удалось экспортировать данные'));
+    }
+  };
+
+  const handleExportBackupWithPhotos = async () => {
+    try {
+      const backup = await createBackup({ includeThumbs: true });
+      exportBackupToFile(backup);
+    } catch (err: any) {
+      alert(
+        'Ошибка при сохранении полного бэкапа: ' +
+        (err?.message || 'не удалось экспортировать данные') +
+        '. Попробуй сохранить бэкап без фото — он занимает меньше памяти.'
+      );
     }
   };
 
@@ -47,6 +71,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       const data = JSON.parse(text);
       await mergeBackup(data);
       onRefreshData();
+      refreshThumbsCount();
       alert('Бэкап успешно загружен и объединён с текущими данными.');
     } catch (err: any) {
       alert('Ошибка при чтении бэкапа: ' + (err.message || 'некорректный JSON'));
@@ -209,11 +234,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
 
           <div className="backup-actions-row">
-            <button className="backup-btn" onClick={handleExportBackup} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <button className="backup-btn backup-btn-primary" onClick={handleExportBackupNoPhotos}>
               <Save size={16} />
-              <span>Сохранить бэкап (JSON)</span>
+              <span>Сохранить бэкап без фото</span>
             </button>
-            <button className="backup-btn" onClick={() => fileInputRef.current?.click()} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <button className="backup-btn" onClick={handleExportBackupWithPhotos}>
+              <Images size={16} />
+              <span>Сохранить бэкап с фото</span>
+            </button>
+            <button className="backup-btn" onClick={() => fileInputRef.current?.click()}>
               <FolderOpen size={16} />
               <span>Загрузить бэкап со слиянием</span>
             </button>
@@ -225,6 +254,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               onChange={handleImportBackup}
             />
           </div>
+          <p className="backup-hint">
+            {thumbsCount !== null && thumbsCount > 0
+              ? `Без фото файл скачивается быстрее, места и опыт сохраняются. Превью (${thumbsCount} шт., ~${Math.max(1, Math.round((thumbsCount * 30) / 1024))} МБ) в галерее после восстановления не будет.`
+              : 'Без фото файл скачивается быстрее, места и опыт сохраняются, а превью в галерее после восстановления не будет.'}
+          </p>
         </div>
       </div>
 
@@ -418,8 +452,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         }
 
         .backup-btn {
-          flex: 1;
-          min-width: 180px;
+          flex: 1 1 180px;
+          min-width: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
           padding: 10px 14px;
           background: var(--bg-3);
           border: 1px solid var(--border);
@@ -428,10 +466,30 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           font-weight: 600;
           font-size: 12px;
           text-align: center;
+          cursor: pointer;
+          transition: background var(--transition);
         }
 
         .backup-btn:hover {
           background: var(--border);
+        }
+
+        .backup-btn-primary {
+          background: var(--accent);
+          border-color: var(--accent);
+          color: var(--on-accent);
+        }
+
+        .backup-btn-primary:hover {
+          background: var(--accent-2);
+          border-color: var(--accent-2);
+        }
+
+        .backup-hint {
+          font-size: 12px;
+          color: var(--muted);
+          line-height: 1.4;
+          margin-top: 6px;
         }
 
         @media (min-width: 768px) {

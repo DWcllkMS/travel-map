@@ -455,17 +455,14 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           </div>
         )}
 
-        {trip.thumbIds.length > 0 && (
+        {trip.thumbIds.some(tid => Boolean(thumbnails[tid])) && (
           <div className="trip-thumbs-grid">
             {trip.thumbIds.map(tid => {
               const url = thumbnails[tid];
+              if (!url) return null;
               return (
                 <div key={tid} className="thumb-item">
-                  {url ? (
-                    <img src={url} alt="Превью поездки" className="thumb-img" />
-                  ) : (
-                    <div className="thumb-placeholder" />
-                  )}
+                  <img src={url} alt="Превью поездки" className="thumb-img" />
                 </div>
               );
             })}
