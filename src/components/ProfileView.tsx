@@ -158,7 +158,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
         <div className="section-box">
           <div className="section-title-row" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <Star size={18} color="var(--badge-gold)" fill="var(--badge-gold)" />
+            <Star size={18} color="var(--accent)" />
             <h3 className="section-title" style={{ margin: 0 }}>Список «Хочу сюда» ({wishlistItems.length})</h3>
           </div>
           {wishlistItems.length === 0 ? (
@@ -185,7 +185,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
         <div className="section-box">
           <div className="section-title-row" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <Globe size={18} color="var(--muted)" />
+            <Globe size={18} color="var(--accent)" />
             <h3 className="section-title" style={{ margin: 0 }}>Прогресс по странам</h3>
           </div>
           <div className="countries-progress-list custom-scrollbar">
@@ -208,7 +208,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
         <div className="section-box">
           <div className="section-title-row" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <Settings size={18} color="var(--muted)" />
+            <Settings size={18} color="var(--accent)" />
             <h3 className="section-title" style={{ margin: 0 }}>Настройки и данные</h3>
           </div>
           <div className="settings-list">
@@ -452,7 +452,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         }
 
         .backup-btn {
-          flex: 1 1 180px;
+          flex: 1 1 15rem;
+          white-space: nowrap;
+          min-height: 2.75rem;
           min-width: 0;
           display: inline-flex;
           align-items: center;

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Award, Bookmark, ExternalLink, Globe } from 'lucide-react';
+import { X, Award, Bookmark, ExternalLink, Globe, Check, CircleHelp, Undo2, MapPinCheck } from 'lucide-react';
 import type { GeoSight, SightKind } from '../types';
 
 const RASTER_EXT = /\.(jpe?g|png|gif|webp)$/i;
@@ -19,6 +19,9 @@ export interface SelectedSightEntity {
   regionName?: string;
   countryName?: string;
   isVisited: boolean;
+  isCandidate?: boolean;
+  isManual?: boolean;
+  nearbyPhotos?: number;
   firstVisitedDate?: string;
   isWishlist: boolean;
   distanceBonus?: { km: number; multiplier: number };
@@ -28,6 +31,7 @@ interface SightSheetProps {
   entity: SelectedSightEntity | null;
   onClose: () => void;
   onToggleWishlist: () => void;
+  onSetVisit?: (decision: 'confirm' | 'reject' | 'manual' | 'clear') => void;
 }
 
 const KIND_NAMES: Record<SightKind, string> = {
@@ -48,7 +52,8 @@ const KIND_NAMES: Record<SightKind, string> = {
 export const SightSheet: React.FC<SightSheetProps> = ({
   entity,
   onClose,
-  onToggleWishlist
+  onToggleWishlist,
+  onSetVisit
 }) => {
   const [imageAttempt, setImageAttempt] = useState(0);
   const sightId = entity?.sight.id;
@@ -101,8 +106,8 @@ export const SightSheet: React.FC<SightSheetProps> = ({
 
           {sight.unesco && (
             <span className="badge unesco-badge">
-              <Globe size={13} style={{ marginRight: 4 }} />
-              ЮНЕСКО
+              <Globe size={13} />
+              <span>ЮНЕСКО</span>
             </span>
           )}
 
@@ -118,14 +123,15 @@ export const SightSheet: React.FC<SightSheetProps> = ({
 
           {entity.isVisited ? (
             <span className="badge status-visited-badge">
-              <Award size={13} style={{ marginRight: 4 }} />
-              Открыто {formattedDate ? `(${formattedDate})` : ''}
+              <Award size={13} />
+              <span>{entity.isManual ? 'Отмечено' : 'Открыто'}{formattedDate ? ` · ${formattedDate}` : ''}</span>
             </span>
-          ) : (
-            <span className="badge status-unvisited-badge">
-              Сфотографируй в радиусе {radiusKm}
+          ) : entity.isCandidate ? (
+            <span className="badge status-candidate-badge">
+              <CircleHelp size={13} />
+              <span>Возможно, была</span>
             </span>
-          )}
+          ) : null}
 
           {entity.isWishlist && (
             <span className="badge wishlist-badge">В вишлисте</span>
@@ -159,7 +165,45 @@ export const SightSheet: React.FC<SightSheetProps> = ({
           </div>
         )}
 
+        {onSetVisit && entity.isCandidate && (
+          <div className="sight-confirm">
+            <p className="sight-confirm-text">
+              Рядом {entity.nearbyPhotos === 1 ? 'есть твоё фото' : 'есть твои фото'} (в радиусе {radiusKm}). Была здесь?
+            </p>
+            <div className="sight-confirm-actions">
+              <button type="button" className="action-btn active-accent" onClick={() => onSetVisit('confirm')}>
+                <Check size={16} />
+                <span>Да, была</span>
+              </button>
+              <button type="button" className="action-btn" onClick={() => onSetVisit('reject')}>
+                <X size={16} />
+                <span>Нет</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {onSetVisit && !entity.isCandidate && !entity.isVisited && (
+          <p className="sight-hint">
+            {entity.nearbyPhotos ? 'Отмечено, что тебя здесь не было.' : 'Твоих фото рядом нет.'} Можно отметить вручную.
+          </p>
+        )}
+
         <div className="sight-actions-row">
+          {onSetVisit && !entity.isCandidate && (
+            entity.isVisited ? (
+              <button type="button" className="action-btn" onClick={() => onSetVisit('clear')}>
+                <Undo2 size={16} />
+                <span>Снять отметку</span>
+              </button>
+            ) : (
+              <button type="button" className="action-btn" onClick={() => onSetVisit('manual')}>
+                <MapPinCheck size={16} />
+                <span>Была здесь</span>
+              </button>
+            )
+          )}
+
           <button
             className={`action-btn ${entity.isWishlist ? 'active-accent' : ''}`}
             onClick={onToggleWishlist}
@@ -305,8 +349,34 @@ export const SightSheet: React.FC<SightSheetProps> = ({
           background: rgba(229, 56, 59, 0.15);
         }
 
-        .status-unvisited-badge {
-          border-color: var(--border);
+        .status-candidate-badge {
+          border-color: var(--accent);
+          border-style: dashed;
+          color: var(--text);
+        }
+
+        .sight-confirm {
+          display: flex;
+          flex-direction: column;
+          gap: 0.625rem;
+          padding: 0.75rem;
+          border-radius: var(--radius);
+          border: 1px dashed color-mix(in srgb, var(--accent) 60%, var(--border));
+          background: color-mix(in srgb, var(--accent) 8%, var(--bg-2));
+        }
+
+        .sight-confirm-text {
+          font-size: 0.875rem;
+          color: var(--text);
+        }
+
+        .sight-confirm-actions {
+          display: flex;
+          gap: 0.5rem;
+        }
+
+        .sight-hint {
+          font-size: 0.8125rem;
           color: var(--muted);
         }
 
@@ -357,13 +427,16 @@ export const SightSheet: React.FC<SightSheetProps> = ({
         }
 
         .sight-actions-row {
-          display: flex;
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
           gap: 8px;
           margin-top: 4px;
         }
 
         .action-btn {
           flex: 1;
+          min-height: 2.75rem;
+          white-space: nowrap;
           display: inline-flex;
           align-items: center;
           justify-content: center;

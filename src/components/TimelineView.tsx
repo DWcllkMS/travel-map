@@ -70,8 +70,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
   }, []);
 
   const sightsMatch = useMemo(() => {
-    return globalSightsIndex.matchPhotos(photos);
-  }, [photos]);
+    return globalSightsIndex.resolveVisits(photos, marks);
+  }, [photos, marks]);
 
   const matchedSightIdsByPhotoId = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -304,7 +304,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                 {recap.furthestPoint ? `${recap.furthestPoint.km.toLocaleString('ru-RU')} км` : '—'}
               </div>
               <div className="stat-card-sub">
-                {recap.furthestPoint ? recap.furthestPoint.regionName : 'Точка дома не задана'}
+                {recap.furthestPoint ? recap.furthestPoint.regionName : homeRegionId ? 'Нет фото с координатами' : 'Точка дома не задана'}
               </div>
             </div>
           </div>
@@ -787,12 +787,14 @@ const timelineStyles = `
     align-items: flex-end;
     justify-content: space-between;
     height: 110px;
-    gap: 6px;
+    gap: clamp(2px, 1vw, 6px);
     padding-top: 18px;
+    min-width: 0;
   }
 
   .histo-col {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -836,7 +838,11 @@ const timelineStyles = `
   }
 
   .histo-month-label {
-    font-size: 11px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: clip;
+    white-space: nowrap;
+    font-size: clamp(9px, 2.6vw, 11px);
     color: var(--muted);
     font-weight: 600;
   }

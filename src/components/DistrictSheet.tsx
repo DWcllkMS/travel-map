@@ -34,8 +34,6 @@ export const DistrictSheet: React.FC<DistrictSheetProps> = ({
   onSetHomeRegion,
   onSelectPhotoThumb
 }) => {
-  if (!entity) return null;
-
   const [thumbOverrides, setThumbOverrides] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -48,6 +46,8 @@ export const DistrictSheet: React.FC<DistrictSheetProps> = ({
     window.addEventListener('thumb-updated', handler);
     return () => window.removeEventListener('thumb-updated', handler);
   }, []);
+
+  if (!entity) return null;
 
   const title = entity.district ? entity.district.name : (entity.region ? entity.region.name : 'Неизвестное место');
   const parentSubtitle = entity.district
@@ -464,12 +464,15 @@ export const DistrictSheet: React.FC<DistrictSheetProps> = ({
 
         .actions-row {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
           gap: 8px;
           margin-top: 4px;
         }
 
         .action-btn {
+          justify-content: center;
+          min-height: 2.75rem;
+          white-space: nowrap;
           padding: 10px 14px;
           border-radius: var(--radius-sm);
           background: var(--bg-3);

@@ -253,7 +253,7 @@ export const App: React.FC = () => {
       }
     }
 
-    const { visitedSightIds, visitedSightFirstDates } = globalSightsIndex.matchPhotos(photos);
+    const { visitedSightIds, visitedSightFirstDates, candidateSightIds } = globalSightsIndex.resolveVisits(photos, marks, settings.includeManualInStats);
 
     return {
       visitedDistrictIds,
@@ -261,6 +261,7 @@ export const App: React.FC = () => {
       visitedCountries,
       visitedSightIds,
       visitedSightFirstDates,
+      candidateSightIds,
       allSights: globalSightsIndex.getAll(),
       photos,
       marks,
@@ -309,7 +310,7 @@ export const App: React.FC = () => {
     const districtById = new Map(allDistricts.map(d => [d.id, d]));
     const allRegions = globalGeoIndex.getAllRegions();
     const regionById = new Map(allRegions.map(r => [r.id, r]));
-    const { visitedSightIds } = globalSightsIndex.matchPhotos(photos);
+    const { visitedSightIds } = globalSightsIndex.resolveVisits(photos, marks, settings.includeManualInStats);
 
     const xpRes = calculateSubsetXp({
       photos,

@@ -15,8 +15,6 @@ export const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
   thumb,
   onClose
 }) => {
-  if (!photo && !thumb) return null;
-
   const [currentThumb, setCurrentThumb] = useState<ThumbnailRecord | undefined>(thumb);
   const [rotating, setRotating] = useState(false);
 
@@ -59,6 +57,8 @@ export const PhotoDetailModal: React.FC<PhotoDetailModalProps> = ({
       setRotating(false);
     }
   };
+
+  if (!photo && !thumb) return null;
 
   const proofLabels = {
     gold: 'Золотое доказательство (GPS в EXIF/видео)',

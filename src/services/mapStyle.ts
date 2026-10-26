@@ -79,8 +79,15 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
           features: []
         },
         cluster: true,
-        clusterMaxZoom: 13,
-        clusterRadius: 40
+        clusterMaxZoom: 11,
+        clusterRadius: 26
+      },
+      timelapsePingSource: {
+        type: 'geojson',
+        data: {
+          type: 'FeatureCollection',
+          features: []
+        }
       }
     },
     layers: [
@@ -173,6 +180,15 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
         }
       },
       {
+        id: 'regions-fresh',
+        type: 'fill',
+        source: 'regionsSource',
+        paint: {
+          'fill-color': p.accent2,
+          'fill-opacity': ['*', 0.55, ['coalesce', ['feature-state', 'fresh'], 0]]
+        }
+      },
+      {
         id: 'regions-outline',
         type: 'line',
         source: 'regionsSource',
@@ -238,6 +254,16 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
         }
       },
       {
+        id: 'districts-fresh',
+        type: 'fill',
+        source: 'districtsSource',
+        minzoom: 4.8,
+        paint: {
+          'fill-color': p.accent2,
+          'fill-opacity': ['*', 0.55, ['coalesce', ['feature-state', 'fresh'], 0]]
+        }
+      },
+      {
         id: 'districts-outline',
         type: 'line',
         source: 'districtsSource',
@@ -265,6 +291,28 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
             ['literal', [2, 2]],
             ['literal', [1]]
           ]
+        }
+      },
+      {
+        id: 'regions-fresh-line',
+        type: 'line',
+        source: 'regionsSource',
+        paint: {
+          'line-color': p.accent2,
+          'line-width': ['+', 1, ['*', 2.5, ['coalesce', ['feature-state', 'fresh'], 0]]],
+          'line-blur': 1,
+          'line-opacity': ['coalesce', ['feature-state', 'fresh'], 0]
+        }
+      },
+      {
+        id: 'districts-fresh-line',
+        type: 'line',
+        source: 'districtsSource',
+        minzoom: 4.8,
+        paint: {
+          'line-color': p.accent2,
+          'line-width': ['+', 1, ['*', 2, ['coalesce', ['feature-state', 'fresh'], 0]]],
+          'line-opacity': ['coalesce', ['feature-state', 'fresh'], 0]
         }
       },
       {
@@ -365,6 +413,8 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
             'case',
             ['boolean', ['feature-state', 'visited'], false],
             p.mapClusterStroke,
+            ['boolean', ['feature-state', 'candidate'], false],
+            p.accent,
             ['boolean', ['feature-state', 'wishlist'], false],
             p.accent2,
             p.mapText
@@ -372,6 +422,8 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
           'circle-stroke-width': [
             'case',
             ['boolean', ['feature-state', 'visited'], false],
+            2,
+            ['boolean', ['feature-state', 'candidate'], false],
             2,
             ['boolean', ['feature-state', 'wishlist'], false],
             2.5,
@@ -400,6 +452,8 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
             'case',
             ['boolean', ['feature-state', 'visited'], false],
             p.mapClusterStroke,
+            ['boolean', ['feature-state', 'candidate'], false],
+            p.accent,
             ['boolean', ['feature-state', 'wishlist'], false],
             p.accent2,
             p.mapText
@@ -407,6 +461,8 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
           'circle-stroke-width': [
             'case',
             ['boolean', ['feature-state', 'visited'], false],
+            2,
+            ['boolean', ['feature-state', 'candidate'], false],
             2,
             ['boolean', ['feature-state', 'wishlist'], false],
             2.5,
@@ -433,6 +489,8 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
             'case',
             ['boolean', ['feature-state', 'visited'], false],
             p.mapClusterStroke,
+            ['boolean', ['feature-state', 'candidate'], false],
+            p.accent,
             ['boolean', ['feature-state', 'wishlist'], false],
             p.accent2,
             p.mapText
@@ -440,6 +498,8 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
           'circle-stroke-width': [
             'case',
             ['boolean', ['feature-state', 'visited'], false],
+            2,
+            ['boolean', ['feature-state', 'candidate'], false],
             2,
             ['boolean', ['feature-state', 'wishlist'], false],
             2.5,
@@ -474,9 +534,10 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
         filter: ['has', 'point_count'],
         paint: {
           'circle-color': p.accent,
-          'circle-radius': ['step', ['get', 'point_count'], 14, 10, 18, 50, 24],
-          'circle-stroke-width': 2,
-          'circle-stroke-color': p.mapClusterStroke
+          'circle-opacity': 0.92,
+          'circle-radius': ['step', ['get', 'point_count'], 7.5, 10, 9, 100, 10.5, 1000, 12],
+          'circle-stroke-width': 1.5,
+          'circle-stroke-color': p.mapLand
         }
       },
       {
@@ -487,7 +548,9 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
         layout: {
           'text-field': '{point_count_abbreviated}',
           'text-font': ['Noto Sans Regular'],
-          'text-size': 11
+          'text-size': ['step', ['get', 'point_count'], 9, 1000, 8.5],
+          'text-allow-overlap': true,
+          'text-ignore-placement': true
         },
         paint: {
           'text-color': p.mapClusterText
@@ -498,12 +561,36 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
         type: 'circle',
         source: 'photosSource',
         filter: ['!', ['has', 'point_count']],
-        minzoom: 8,
         paint: {
           'circle-color': p.mapPhotoPointInner,
-          'circle-radius': 5.5,
-          'circle-stroke-width': 2.5,
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 2.5, 9, 3.5, 14, 5],
+          'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 3, 1.5, 14, 2],
           'circle-stroke-color': p.accent
+        }
+      },
+      {
+        id: 'timelapse-ping-ring',
+        type: 'circle',
+        source: 'timelapsePingSource',
+        paint: {
+          'circle-color': 'rgba(0, 0, 0, 0)',
+          'circle-radius': 4,
+          'circle-stroke-width': 2,
+          'circle-stroke-color': p.accent2,
+          'circle-stroke-opacity': 0
+        }
+      },
+      {
+        id: 'timelapse-ping-dot',
+        type: 'circle',
+        source: 'timelapsePingSource',
+        paint: {
+          'circle-color': p.mapPhotoPointInner,
+          'circle-radius': 3,
+          'circle-stroke-width': 2,
+          'circle-stroke-color': p.accent,
+          'circle-opacity': 0,
+          'circle-stroke-opacity': 0
         }
       }
     ]

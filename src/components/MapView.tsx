@@ -7,6 +7,7 @@ import { TopBar, type MapFilters } from './TopBar';
 import { DistrictSheet, type SelectedEntity } from './DistrictSheet';
 import { SightSheet, type SelectedSightEntity } from './SightSheet';
 import { PhotoDetailModal } from './PhotoDetailModal';
+import { PhotoClusterSheet, type PhotoClusterSelection } from './PhotoClusterSheet';
 import { TimelapseControlPanel } from './TimelapseControlPanel';
 import { buildTimelapseSteps, computeBaseStepDuration, type TimelapseStep } from '../services/timelapseService';
 import { globalGeoIndex } from '../services/geoIndex';
@@ -14,6 +15,19 @@ import { globalSightsIndex } from '../services/sightsIndex';
 import { db, updateSettings } from '../services/db';
 import { homeDistanceBonus } from '../services/gameService';
 import type { UserLevelInfo, PhotoRecord, ThumbnailRecord, MarkRecord, GeoDistrict, GeoRegion, ProofLevel, GameContext } from '../types';
+
+const FRESH_MS = 1600;
+const PING_MS = 1400;
+
+const easeOutCubic = (t: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
+const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const r = Math.PI / 180;
+  const a = Math.sin(((lat2 - lat1) * r) / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(((lon2 - lon1) * r) / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(a));
+};
 
 interface MapViewProps {
   theme: 'dark' | 'light';
@@ -60,6 +74,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
   const [selectedEntity, setSelectedEntity] = useState<SelectedEntity | null>(null);
   const [selectedSightEntity, setSelectedSightEntity] = useState<SelectedSightEntity | null>(null);
+  const [photoCluster, setPhotoCluster] = useState<(PhotoClusterSelection & { center: [number, number]; zoom: number }) | null>(null);
   const [selectedPhotoModal, setSelectedPhotoModal] = useState<{ photo?: PhotoRecord; thumb?: ThumbnailRecord } | null>(null);
 
   const [timelapseActive, setTimelapseActive] = useState(false);
@@ -78,7 +93,12 @@ export const MapView: React.FC<MapViewProps> = ({
   const [timelapseFollowCamera, setTimelapseFollowCamera] = useState(true);
   const timelapseFollowCameraRef = useRef(timelapseFollowCamera);
   timelapseFollowCameraRef.current = timelapseFollowCamera;
-  const [timelapseNotification, setTimelapseNotification] = useState<string | null>(null);
+  const [timelapseNotification, setTimelapseNotification] = useState<{ key: number; items: string[] } | null>(null);
+  const timelapseSpeedRef = useRef(1);
+  timelapseSpeedRef.current = timelapseSpeed;
+  const freshRef = useRef(new Map<string, number>());
+  const pingStartRef = useRef(0);
+  const fxFrameRef = useRef(0);
   const [timelapseFinished, setTimelapseFinished] = useState(false);
   const applyTimelapseStepRef = useRef<(targetIndex: number, isForwardDelta?: boolean) => void>(() => {});
 
@@ -189,11 +209,15 @@ export const MapView: React.FC<MapViewProps> = ({
         const clusterId = clusterFeatures[0].properties?.cluster_id;
         const source = map.getSource('photosSource') as GeoJSONSource;
         if (source && clusterId !== undefined) {
-          source.getClusterExpansionZoom(clusterId).then(zoom => {
-            map.easeTo({
-              center: (clusterFeatures[0].geometry as any).coordinates,
-              zoom
-            });
+          const center = (clusterFeatures[0].geometry as any).coordinates as [number, number];
+          Promise.all([
+            source.getClusterLeaves(clusterId, Infinity, 0),
+            source.getClusterExpansionZoom(clusterId)
+          ]).then(([leaves, zoom]) => {
+            const ids = new Set(leaves.map(l => l.properties?.id));
+            const list = photosRef.current.filter(p => ids.has(p.id));
+            if (list.length === 0) return;
+            setPhotoCluster({ photos: list, canZoom: zoom > map.getZoom() + 0.5, center, zoom });
           }).catch(() => {});
         }
         return;
@@ -443,12 +467,14 @@ export const MapView: React.FC<MapViewProps> = ({
 
     if (map.getSource('sightsSource')) {
       const visitedSights = gameContextRef.current?.visitedSightIds || new Set<string>();
+      const candidateSights = gameContextRef.current?.candidateSightIds || new Set<string>();
       for (const s of globalSightsIndex.getAll()) {
-        const isVisited = visitedSights.has(s.id);
+        const isVisited = showVisited && visitedSights.has(s.id);
+        const isCandidate = showVisited && candidateSights.has(s.id);
         const isWishlist = showWishlist && wishlistIds.has(s.id);
         map.setFeatureState(
           { source: 'sightsSource', id: s.id },
-          { visited: isVisited, wishlist: isWishlist }
+          { visited: isVisited, candidate: isCandidate, wishlist: isWishlist }
         );
       }
     }
@@ -460,8 +486,19 @@ export const MapView: React.FC<MapViewProps> = ({
     if (!sight) return;
 
     const visited = !!gameContextRef.current?.visitedSightIds.has(sight.id);
+    const candidate = !visited && !!gameContextRef.current?.candidateSightIds?.has(sight.id);
+    const manual = marksRef.current.some(m => m.targetId === sight.id && m.markType === 'visited_manual');
     const wishlist = marksRef.current.some(m => m.targetId === sight.id && m.markType === 'wishlist');
-    const firstDate = gameContextRef.current?.visitedSightFirstDates.get(sight.id);
+    const firstDate = gameContextRef.current?.visitedSightFirstDates.get(sight.id)
+      || marksRef.current.find(m => m.targetId === sight.id && m.markType === 'visited_manual')?.createdAt;
+    const nearbyPhotos = candidate || visited
+      ? photosRef.current.filter(p => {
+          if (p.proof !== 'gold' && p.proof !== 'silver') return false;
+          const dx = (p.lon - sight.lon) * Math.cos((sight.lat * Math.PI) / 180) * 111320;
+          const dy = (p.lat - sight.lat) * 111320;
+          return Math.hypot(dx, dy) <= sight.radius;
+        }).length
+      : 0;
 
     let regionName: string | undefined;
     if (sight.regionId) {
@@ -479,6 +516,9 @@ export const MapView: React.FC<MapViewProps> = ({
       regionName,
       countryName,
       isVisited: visited,
+      isCandidate: candidate,
+      isManual: manual,
+      nearbyPhotos,
       firstVisitedDate: firstDate,
       isWishlist: wishlist,
       distanceBonus: sight.regionId === homeRegionIdRef.current
@@ -503,6 +543,26 @@ export const MapView: React.FC<MapViewProps> = ({
         country: selectedSightEntity.sight.country
       });
       setSelectedSightEntity({ ...selectedSightEntity, isWishlist: true });
+    }
+  };
+
+  const setSightVisit = async (decision: 'confirm' | 'reject' | 'manual' | 'clear') => {
+    if (!selectedSightEntity) return;
+    const sight = selectedSightEntity.sight;
+    const targetId = sight.id;
+    await db.marks.where('targetId').equals(targetId)
+      .filter(m => m.markType === 'sight_confirmed' || m.markType === 'sight_rejected' || m.markType === 'visited_manual')
+      .delete();
+    if (decision !== 'clear') {
+      const markType = decision === 'confirm' ? 'sight_confirmed' : decision === 'reject' ? 'sight_rejected' : 'visited_manual';
+      await db.marks.put({
+        id: `mark-${markType}-${targetId}`,
+        targetId,
+        targetType: 'sight',
+        markType,
+        createdAt: new Date().toISOString(),
+        country: sight.country
+      });
     }
   };
 
@@ -621,6 +681,135 @@ export const MapView: React.FC<MapViewProps> = ({
     setSelectedEntity({ ...selectedEntity, isHome: true, distanceBonus: undefined });
   };
 
+  const clearTimelapseFx = () => {
+    if (fxFrameRef.current) {
+      cancelAnimationFrame(fxFrameRef.current);
+      fxFrameRef.current = 0;
+    }
+    const map = mapRef.current;
+    if (map && map.style) {
+      for (const key of freshRef.current.keys()) {
+        const [source, id] = key.split('|');
+        if (map.getSource(source)) map.setFeatureState({ source, id }, { fresh: 0 });
+      }
+      const ping = map.getSource('timelapsePingSource') as GeoJSONSource | undefined;
+      ping?.setData({ type: 'FeatureCollection', features: [] });
+    }
+    freshRef.current.clear();
+    pingStartRef.current = 0;
+  };
+
+  const runTimelapseFx = () => {
+    if (fxFrameRef.current) return;
+    const tick = (now: number) => {
+      fxFrameRef.current = 0;
+      const map = mapRef.current;
+      if (!map || !map.style) return;
+      let active = false;
+
+      for (const [key, start] of freshRef.current) {
+        const [source, id] = key.split('|');
+        const k = Math.max(0, (now - start) / FRESH_MS);
+        if (k >= 1) {
+          map.setFeatureState({ source, id }, { fresh: 0 });
+          freshRef.current.delete(key);
+          continue;
+        }
+        const value = k < 0.15 ? k / 0.15 : 1 - easeOutCubic((k - 0.15) / 0.85);
+        map.setFeatureState({ source, id }, { fresh: Math.max(0, value) });
+        active = true;
+      }
+
+      if (pingStartRef.current && map.getLayer('timelapse-ping-ring')) {
+        const k = Math.max(0, (now - pingStartRef.current) / PING_MS);
+        if (k >= 1) {
+          pingStartRef.current = 0;
+          map.setPaintProperty('timelapse-ping-ring', 'circle-stroke-opacity', 0);
+          map.setPaintProperty('timelapse-ping-dot', 'circle-opacity', 0);
+          map.setPaintProperty('timelapse-ping-dot', 'circle-stroke-opacity', 0);
+        } else {
+          const e = easeOutCubic(k);
+          const dot = k < 0.12 ? k / 0.12 : k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1;
+          map.setPaintProperty('timelapse-ping-ring', 'circle-radius', 4 + 20 * e);
+          map.setPaintProperty('timelapse-ping-ring', 'circle-stroke-opacity', 0.9 * (1 - e));
+          map.setPaintProperty('timelapse-ping-dot', 'circle-radius', k < 0.2 ? 3 + 7.5 * k : 4.5 - 1.5 * Math.min(1, (k - 0.2) / 0.3));
+          map.setPaintProperty('timelapse-ping-dot', 'circle-opacity', dot);
+          map.setPaintProperty('timelapse-ping-dot', 'circle-stroke-opacity', dot);
+          active = true;
+        }
+      }
+
+      if (active) fxFrameRef.current = requestAnimationFrame(tick);
+    };
+    fxFrameRef.current = requestAnimationFrame(tick);
+  };
+
+  const startTimelapseFx = (step: TimelapseStep) => {
+    const map = mapRef.current;
+    if (!map || !map.style || prefersReducedMotion()) return;
+    const now = performance.now();
+    for (const d of step.districtsDelta) freshRef.current.set(`districtsSource|${d.id}`, now);
+    for (const r of step.regionsDelta) freshRef.current.set(`regionsSource|${r.id}`, now);
+
+    const seen = new Set<string>();
+    const points: [number, number][] = [];
+    for (const p of step.newPhotos) {
+      if (typeof p.lon !== 'number' || typeof p.lat !== 'number') continue;
+      const key = `${p.lon.toFixed(2)}|${p.lat.toFixed(2)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      points.push([p.lon, p.lat]);
+      if (points.length >= 60) break;
+    }
+    if (points.length === 0 && step.center && step.regionsDelta.length > 0) points.push(step.center);
+    const ping = map.getSource('timelapsePingSource') as GeoJSONSource | undefined;
+    if (ping && points.length > 0) {
+      ping.setData({
+        type: 'FeatureCollection',
+        features: points.map(c => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: c } }))
+      });
+      pingStartRef.current = now;
+    }
+    runTimelapseFx();
+  };
+
+  const moveTimelapseCamera = (step: TimelapseStep, first: boolean) => {
+    const map = mapRef.current;
+    if (!map || !step.center) return;
+    const container = map.getContainer();
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    const pt = map.project(step.center);
+    const inside = pt.x > w * 0.18 && pt.x < w * 0.82 && pt.y > h * 0.18 && pt.y < h * 0.5;
+    if (!first && inside) return;
+
+    const interval = computeBaseStepDuration(timelapseStepsRef.current.length) / timelapseSpeedRef.current;
+    const zoom = first ? Math.min(Math.max(map.getZoom(), 3.5), 5) : Math.min(Math.max(map.getZoom(), 3.2), 6);
+    const offset: [number, number] = [0, -Math.round(h * 0.14)];
+    const from = map.getCenter();
+    const km = haversineKm(from.lat, from.lng, step.center[1], step.center[0]);
+    const reduce = prefersReducedMotion();
+
+    if (km > 1500 && !reduce) {
+      map.flyTo({
+        center: step.center,
+        zoom: Math.min(zoom, 4.5),
+        offset,
+        duration: Math.min(2600, Math.max(1200, interval * 1.6)),
+        curve: 1.3,
+        essential: true
+      });
+    } else {
+      map.easeTo({
+        center: step.center,
+        zoom,
+        offset,
+        duration: reduce ? 0 : Math.min(1800, Math.max(500, interval * 0.95)),
+        easing: easeInOutCubic
+      });
+    }
+  };
+
   const applyTimelapseStep = (targetIndex: number, isForwardDelta: boolean = false) => {
     const map = mapRef.current;
     if (!map || !map.style) return;
@@ -636,6 +825,7 @@ export const MapView: React.FC<MapViewProps> = ({
         map.setFeatureState({ source: 'regionsSource', id: r.id }, { visited: true, proof: r.proof, wishlist: false, hasDistricts: r.hasDistricts });
       }
     } else {
+      clearTimelapseFx();
       map.removeFeatureState({ source: 'districtsSource' });
       map.removeFeatureState({ source: 'regionsSource' });
 
@@ -703,25 +893,12 @@ export const MapView: React.FC<MapViewProps> = ({
 
     fogRef.current?.setH3CellsFromPhotos(step.cumulativeH3Cells);
 
-    if (timelapseFollowCameraRef.current && step.center) {
-      try {
-        const bounds = map.getBounds();
-        if (!bounds.contains(step.center)) {
-          const currentZoom = map.getZoom();
-          map.easeTo({
-            center: step.center,
-            zoom: Math.min(currentZoom, 5),
-            duration: 600
-          });
-        }
-      } catch {}
+    if (isForwardDelta) {
+      startTimelapseFx(step);
+      if (timelapseFollowCameraRef.current) moveTimelapseCamera(step, false);
     }
 
-    if (step.newDiscoveries.length > 0) {
-      setTimelapseNotification(step.newDiscoveries.join(' · '));
-    } else {
-      setTimelapseNotification(null);
-    }
+    setTimelapseNotification(step.newDiscoveries.length > 0 ? { key: targetIndex, items: step.newDiscoveries } : null);
   };
   applyTimelapseStepRef.current = applyTimelapseStep;
 
@@ -740,11 +917,44 @@ export const MapView: React.FC<MapViewProps> = ({
       } else {
         setTimelapsePlaying(false);
         setTimelapseFinished(true);
+        showTimelapseOverview();
       }
     }, intervalMs);
 
     return () => clearTimeout(timer);
   }, [timelapseActive, timelapsePlaying, timelapseIndex, timelapseSpeed, timelapseSteps]);
+
+  useEffect(() => () => {
+    if (fxFrameRef.current) cancelAnimationFrame(fxFrameRef.current);
+  }, []);
+
+  const showTimelapseOverview = () => {
+    const map = mapRef.current;
+    const steps = timelapseStepsRef.current;
+    const last = steps[steps.length - 1];
+    if (!map || !last || !timelapseFollowCameraRef.current) return;
+    const pts: [number, number][] = last.cumulativePhotos
+      .filter(p => typeof p.lon === 'number' && typeof p.lat === 'number')
+      .map(p => [p.lon, p.lat]);
+    for (const st of steps) if (st.center) pts.push(st.center);
+    if (pts.length < 2) return;
+    const bounds = new maplibregl.LngLatBounds(pts[0], pts[0]);
+    for (const pt of pts) bounds.extend(pt);
+    const h = map.getContainer().clientHeight;
+    const w = map.getContainer().clientWidth;
+    map.fitBounds(bounds, {
+      padding: { top: Math.round(h * 0.18), bottom: Math.round(h * 0.38), left: Math.round(w * 0.08), right: Math.round(w * 0.08) },
+      maxZoom: 7,
+      duration: prefersReducedMotion() ? 0 : 1800,
+      essential: true
+    });
+  };
+
+  const playFromStart = (steps: TimelapseStep[]) => {
+    applyTimelapseStep(0, false);
+    startTimelapseFx(steps[0]);
+    moveTimelapseCamera(steps[0], true);
+  };
 
   const handleStartTimelapse = () => {
     const steps = buildTimelapseSteps(photosRef.current, marksRef.current, {
@@ -762,9 +972,12 @@ export const MapView: React.FC<MapViewProps> = ({
     setSelectedEntity(null);
     setSelectedSightEntity(null);
     setSelectedPhotoModal(null);
+    setPhotoCluster(null);
     activeCardRef.current = null;
     activeSightCardRef.current = null;
 
+    timelapseStepsRef.current = steps;
+    timelapseIndexRef.current = 0;
     setTimelapseSteps(steps);
     setTimelapseIndex(0);
     setTimelapseActive(true);
@@ -772,46 +985,11 @@ export const MapView: React.FC<MapViewProps> = ({
     setTimelapseFinished(false);
     onTimelapseActiveChange?.(true);
 
-    const map = mapRef.current;
-    if (map && map.style) {
-      map.removeFeatureState({ source: 'districtsSource' });
-      map.removeFeatureState({ source: 'regionsSource' });
-      const source = map.getSource('photosSource') as GeoJSONSource | undefined;
-      if (source) {
-        source.setData({
-          type: 'FeatureCollection',
-          features: steps[0].cumulativePhotos.map(p => ({
-            type: 'Feature',
-            id: p.id,
-            properties: { id: p.id, proof: p.proof, takenAt: p.takenAt, districtId: p.districtId, regionId: p.regionId },
-            geometry: { type: 'Point', coordinates: [p.lon, p.lat] }
-          }))
-        });
-      }
-      for (const d of steps[0].districtsDelta) {
-        map.setFeatureState({ source: 'districtsSource', id: d.id }, { visited: true, proof: d.proof, wishlist: false });
-      }
-      for (const r of steps[0].regionsDelta) {
-        map.setFeatureState({ source: 'regionsSource', id: r.id }, { visited: true, proof: r.proof, wishlist: false, hasDistricts: r.hasDistricts });
-      }
-      fogRef.current?.setH3CellsFromPhotos(steps[0].cumulativeH3Cells);
-      if (steps[0].center) {
-        const currentZoom = map.getZoom();
-        map.easeTo({
-          center: steps[0].center,
-          zoom: Math.min(currentZoom, 4.5),
-          duration: 600
-        });
-      }
-      if (steps[0].newDiscoveries.length > 0) {
-        setTimelapseNotification(steps[0].newDiscoveries.join(' · '));
-      } else {
-        setTimelapseNotification(null);
-      }
-    }
+    playFromStart(steps);
   };
 
   const handleCloseTimelapse = () => {
+    clearTimelapseFx();
     setTimelapseActive(false);
     setTimelapsePlaying(false);
     setTimelapseFinished(false);
@@ -841,18 +1019,10 @@ export const MapView: React.FC<MapViewProps> = ({
 
   const handleReplay = () => {
     setTimelapseIndex(0);
+    timelapseIndexRef.current = 0;
     setTimelapseFinished(false);
     setTimelapsePlaying(true);
-    applyTimelapseStep(0, false);
-    const map = mapRef.current;
-    if (map && map.style && timelapseStepsRef.current[0]?.center) {
-      const currentZoom = map.getZoom();
-      map.easeTo({
-        center: timelapseStepsRef.current[0].center,
-        zoom: Math.min(currentZoom, 4.5),
-        duration: 600
-      });
-    }
+    if (timelapseStepsRef.current.length > 0) playFromStart(timelapseStepsRef.current);
   };
 
   return (
@@ -898,6 +1068,20 @@ export const MapView: React.FC<MapViewProps> = ({
           setSelectedSightEntity(null);
         }}
         onToggleWishlist={handleToggleSightWishlist}
+        onSetVisit={setSightVisit}
+      />
+
+      <PhotoClusterSheet
+        selection={photoCluster}
+        onClose={() => setPhotoCluster(null)}
+        onZoomIn={() => {
+          const map = mapRef.current;
+          if (map && photoCluster) {
+            map.easeTo({ center: photoCluster.center, zoom: Math.min(photoCluster.zoom + 0.5, 14), duration: 700 });
+          }
+          setPhotoCluster(null);
+        }}
+        onSelectPhoto={(photo, thumb) => setSelectedPhotoModal({ photo, thumb })}
       />
 
       <PhotoDetailModal
@@ -911,6 +1095,8 @@ export const MapView: React.FC<MapViewProps> = ({
           step={timelapseSteps[timelapseIndex]}
           stepIndex={timelapseIndex}
           totalSteps={timelapseSteps.length}
+          startLabel={timelapseSteps[0].formattedDate}
+          endLabel={timelapseSteps[timelapseSteps.length - 1].formattedDate}
           isPlaying={timelapsePlaying}
           isFinished={timelapseFinished}
           speed={timelapseSpeed}

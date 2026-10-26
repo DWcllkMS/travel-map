@@ -1,10 +1,53 @@
 import Flatbush from 'flatbush';
 import type { FeatureCollection, Geometry } from 'geojson';
-import type { GeoSight, PhotoRecord } from '../types';
+import type { GeoSight, MarkRecord, PhotoRecord } from '../types';
 
 export interface SightsMatchResult {
   visitedSightIds: Set<string>;
   visitedSightFirstDates: Map<string, string>;
+}
+
+export interface SightVisitsResult extends SightsMatchResult {
+  candidateSightIds: Set<string>;
+  candidateFirstDates: Map<string, string>;
+}
+
+export function resolveSightVisits(
+  nearby: SightsMatchResult,
+  marks: MarkRecord[],
+  includeManual: boolean = true
+): SightVisitsResult {
+  const confirmed = new Set<string>();
+  const rejected = new Set<string>();
+  const manual = new Set<string>();
+  for (const m of marks) {
+    if (m.targetType !== 'sight') continue;
+    if (m.markType === 'sight_confirmed') confirmed.add(m.targetId);
+    else if (m.markType === 'sight_rejected') rejected.add(m.targetId);
+    else if (m.markType === 'visited_manual') manual.add(m.targetId);
+  }
+
+  const visitedSightIds = new Set<string>();
+  const visitedSightFirstDates = new Map<string, string>();
+  const candidateSightIds = new Set<string>();
+  const candidateFirstDates = new Map<string, string>();
+
+  for (const id of nearby.visitedSightIds) {
+    const date = nearby.visitedSightFirstDates.get(id);
+    if (confirmed.has(id)) {
+      visitedSightIds.add(id);
+      if (date) visitedSightFirstDates.set(id, date);
+    } else if (!rejected.has(id) && !manual.has(id)) {
+      candidateSightIds.add(id);
+      if (date) candidateFirstDates.set(id, date);
+    }
+  }
+
+  if (includeManual) {
+    for (const id of manual) visitedSightIds.add(id);
+  }
+
+  return { visitedSightIds, visitedSightFirstDates, candidateSightIds, candidateFirstDates };
 }
 
 export class SightsSpatialIndex {
@@ -70,6 +113,10 @@ export class SightsSpatialIndex {
 
   getSightById(id: string): GeoSight | undefined {
     return this.sightById.get(id);
+  }
+
+  resolveVisits(photos: PhotoRecord[], marks: MarkRecord[], includeManual: boolean = true): SightVisitsResult {
+    return resolveSightVisits(this.matchPhotos(photos), marks, includeManual);
   }
 
   matchPhotos(photos: PhotoRecord[]): SightsMatchResult {

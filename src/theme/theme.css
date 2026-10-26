@@ -11,6 +11,7 @@
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 16px;
+  --radius-full: 999px;
   --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --transition: 0.18s cubic-bezier(0.2, 0, 0, 1);
   --badge-gold: #F59E0B;
@@ -22,6 +23,8 @@
   --badge-bronze: #D97706;
   --badge-bronze-bg: rgba(180, 83, 9, 0.15);
   --badge-bronze-border: rgba(180, 83, 9, 0.40);
+  --scrim: rgba(0, 0, 0, 0.7);
+  --on-scrim: #FFFFFF;
 }
 
 [data-theme="light"] {
@@ -79,6 +82,18 @@ button {
   border: none;
   cursor: pointer;
   outline: none;
+}
+
+svg.lucide {
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+:where(button, a, label, .badge):has(> svg.lucide) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  line-height: 1.2;
 }
 
 button:focus-visible {

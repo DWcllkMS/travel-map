@@ -83,7 +83,7 @@ export interface ThumbnailRecord {
   takenAt: string;
 }
 
-export type MarkType = 'visited_manual' | 'wishlist' | 'home';
+export type MarkType = 'visited_manual' | 'wishlist' | 'home' | 'sight_confirmed' | 'sight_rejected';
 
 export interface MarkRecord {
   id: string;
@@ -149,6 +149,7 @@ export interface GameContext {
   hasSouthernHemisphere: boolean;
   visitedSightIds: Set<string>;
   visitedSightFirstDates: Map<string, string>;
+  candidateSightIds?: Set<string>;
   allSights: GeoSight[];
 }
 
