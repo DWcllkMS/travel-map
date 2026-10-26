@@ -165,6 +165,7 @@ export const MapView: React.FC<MapViewProps> = ({
     map.on('style.load', applyAllStyleData);
     map.on('load', applyAllStyleData);
     map.on('sourcedata', (e) => {
+      if (e.sourceId === 'photosSource' && timelapseActiveRef.current) return;
       if (e.sourceId && ownSources.has(e.sourceId) && e.isSourceLoaded && e.sourceDataType === 'metadata') {
         applyAllStyleData();
       }
