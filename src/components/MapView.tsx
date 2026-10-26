@@ -155,6 +155,13 @@ export const MapView: React.FC<MapViewProps> = ({
     };
 
     const ownSources = new Set(['regionsSource', 'districtsSource', 'photosSource', 'sightsSource']);
+    map.on('styleimagemissing', (e) => {
+      if (e.id === 'hatch-red') {
+        if (!map.hasImage('hatch-red')) {
+          map.addImage('hatch-red', createHatchImage());
+        }
+      }
+    });
     map.on('style.load', applyAllStyleData);
     map.on('load', applyAllStyleData);
     map.on('sourcedata', (e) => {
@@ -392,12 +399,18 @@ export const MapView: React.FC<MapViewProps> = ({
     const showVisited = filtersRef.current.visited;
     const showWishlist = filtersRef.current.wishlist;
 
+    const bronzeDistricts: string[] = [];
+    const bronzeRegions: string[] = [];
+
     const regionsWithDistricts = new Set<string>();
     for (const d of globalGeoIndex.getAllDistricts()) {
       regionsWithDistricts.add(d.regionId);
       const isVisited = showVisited && visitedDistrictsMap.has(d.id);
       const isWishlist = showWishlist && wishlistIds.has(d.id);
       const proof = visitedDistrictsMap.get(d.id);
+      if (isVisited && proof === 'bronze') {
+        bronzeDistricts.push(d.id);
+      }
 
       map.setFeatureState(
         { source: 'districtsSource', id: d.id },
@@ -410,11 +423,21 @@ export const MapView: React.FC<MapViewProps> = ({
       const isWishlist = showWishlist && wishlistIds.has(r.id);
       const proof = visitedRegionsMap.get(r.id);
       const hasDistricts = regionsWithDistricts.has(r.id);
+      if (isVisited && proof === 'bronze' && !hasDistricts) {
+        bronzeRegions.push(r.id);
+      }
 
       map.setFeatureState(
         { source: 'regionsSource', id: r.id },
         { visited: isVisited, proof, wishlist: isWishlist, hasDistricts }
       );
+    }
+
+    if (map.getLayer('districts-hatch')) {
+      map.setFilter('districts-hatch', ['in', ['get', 'id'], ['literal', bronzeDistricts]]);
+    }
+    if (map.getLayer('regions-hatch')) {
+      map.setFilter('regions-hatch', ['in', ['get', 'id'], ['literal', bronzeRegions]]);
     }
 
     if (map.getSource('sightsSource')) {
@@ -634,6 +657,25 @@ export const MapView: React.FC<MapViewProps> = ({
       for (const [rId, { proof, hasDistricts }] of targetRegionsMap.entries()) {
         map.setFeatureState({ source: 'regionsSource', id: rId }, { visited: true, proof, wishlist: false, hasDistricts });
       }
+    }
+
+    const bronzeDistricts: string[] = [];
+    const bronzeRegions: string[] = [];
+    const regionsWithDistricts = new Set(globalGeoIndex.getAllDistricts().map(d => d.regionId));
+    for (let i = 0; i <= targetIndex; i++) {
+      const st = steps[i];
+      for (const d of st.districtsDelta) {
+        if (d.proof === 'bronze') bronzeDistricts.push(d.id);
+      }
+      for (const r of st.regionsDelta) {
+        if (r.proof === 'bronze' && !regionsWithDistricts.has(r.id)) bronzeRegions.push(r.id);
+      }
+    }
+    if (map.getLayer('districts-hatch')) {
+      map.setFilter('districts-hatch', ['in', ['get', 'id'], ['literal', bronzeDistricts]]);
+    }
+    if (map.getLayer('regions-hatch')) {
+      map.setFilter('regions-hatch', ['in', ['get', 'id'], ['literal', bronzeRegions]]);
     }
 
     const source = map.getSource('photosSource') as GeoJSONSource | undefined;

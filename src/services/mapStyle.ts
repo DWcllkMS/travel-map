@@ -163,6 +163,16 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
         }
       },
       {
+        id: 'regions-hatch',
+        type: 'fill',
+        source: 'regionsSource',
+        filter: ['in', ['get', 'id'], ['literal', []]],
+        paint: {
+          'fill-pattern': 'hatch-red',
+          'fill-opacity': 0.8
+        }
+      },
+      {
         id: 'regions-outline',
         type: 'line',
         source: 'regionsSource',
@@ -208,22 +218,23 @@ export function buildMapStyle(theme: 'dark' | 'light', baseUrl: string = ''): St
             ],
             'rgba(0, 0, 0, 0)'
           ],
-          'fill-pattern': [
-            'case',
-            [
-              'all',
-              ['boolean', ['feature-state', 'visited'], false],
-              ['==', ['feature-state', 'proof'], 'bronze']
-            ],
-            'hatch-red',
-            ''
-          ],
           'fill-opacity': [
             'case',
             ['boolean', ['feature-state', 'visited'], false],
             1.0,
             0.0
           ]
+        }
+      },
+      {
+        id: 'districts-hatch',
+        type: 'fill',
+        source: 'districtsSource',
+        minzoom: 4.8,
+        filter: ['in', ['get', 'id'], ['literal', []]],
+        paint: {
+          'fill-pattern': 'hatch-red',
+          'fill-opacity': 0.8
         }
       },
       {

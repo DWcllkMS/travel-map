@@ -813,7 +813,7 @@ async function buildData(targetCountries = ['RUS']) {
   }), 'utf8');
 
   const outRegionsPath = path.join(outDir, 'regions.json');
-  await mapshaper.runCommands(`-i snap ${tempRegionsPath} -simplify interval=3000 keep-shapes -clean -o format=geojson precision=0.001 ${outRegionsPath}`);
+  await mapshaper.runCommands(`-i snap ${tempRegionsPath} -simplify variable interval="id === 'RUS-283' || id === 'RUS-2337' ? 800 : 3000" keep-shapes -clean -o format=geojson precision=0.001 ${outRegionsPath}`);
 
   console.log('Dissolving countries from regions...');
   const outCountriesPath = path.join(outDir, 'countries.json');
@@ -1117,7 +1117,7 @@ out center tags;`;
     }), 'utf8');
 
     const outDistrictsPath = path.join(outDir, 'districts-RUS.json');
-    await mapshaper.runCommands(`-i ${tempDistrictsPath} -simplify 15% keep-shapes -o format=geojson precision=0.001 ${outDistrictsPath}`);
+    await mapshaper.runCommands(`-i ${tempDistrictsPath} -simplify variable percentage="regionId === 'RUS-283' ? 0.35 : 0.15" keep-shapes -o format=geojson precision=0.001 ${outDistrictsPath}`);
   }
 
   const finalDistrictsPath = path.join(outDir, 'districts-RUS.json');
