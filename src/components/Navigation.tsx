@@ -1,5 +1,6 @@
 import React from 'react';
 import { Map, UploadCloud, Trophy, CalendarDays, User } from 'lucide-react';
+import { AppLogo } from './AppLogo';
 
 export type ActiveTab = 'map' | 'upload' | 'achievements' | 'timeline' | 'profile';
 
@@ -18,11 +19,8 @@ export const Navigation: React.FC<NavigationProps> = ({
     <>
       <nav className="desktop-sidebar">
         <div className="sidebar-brand">
-          <svg className="brand-icon" viewBox="0 0 24 24" width="28" height="28" fill="none">
-            <circle cx="12" cy="12" r="10" stroke="var(--border)" strokeWidth="2" />
-            <path d="M12 6L15 11L20 12L16 16L17 21L12 18L7 21L8 16L4 12L9 11L12 6Z" fill="var(--accent)" />
-          </svg>
-          <span className="brand-title">Карта Путешествий</span>
+          <AppLogo size={26} />
+          <span className="brand-title">Следопыт</span>
         </div>
 
         <div className="sidebar-links">

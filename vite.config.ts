@@ -8,11 +8,11 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon.svg', 'data/*.json'],
+      includeAssets: ['icon.svg', 'apple-touch-icon.png', 'favicon.ico', 'favicon-32x32.png', 'data/*.json'],
       manifest: {
-        name: 'Карта путешествий',
-        short_name: 'Карта',
-        description: 'Личная PWA-карта путешествий в стиле игры',
+        name: 'Следопыт — Карта открытий',
+        short_name: 'Следопыт',
+        description: 'Личная карта-игра открытий в стиле тумана войны',
         theme_color: '#0E0F12',
         background_color: '#0E0F12',
         display: 'standalone',
@@ -21,7 +21,25 @@ export default defineConfig({
             src: 'icon.svg',
             sizes: 'any',
             type: 'image/svg+xml',
-            purpose: 'any maskable'
+            purpose: 'any'
+          },
+          {
+            src: 'icon-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any'
+          },
+          {
+            src: 'icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any'
+          },
+          {
+            src: 'icon-maskable-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable'
           }
         ]
       },

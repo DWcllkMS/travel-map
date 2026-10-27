@@ -41,6 +41,12 @@ export type SightKind =
   | 'park'
   | 'bridge'
   | 'lighthouse'
+  | 'theatre'
+  | 'cave'
+  | 'waterfall'
+  | 'viewpoint'
+  | 'garden'
+  | 'zoo'
   | 'other';
 
 export interface GeoSight {
@@ -72,6 +78,7 @@ export interface PhotoRecord {
   h3: string;
   proof: ProofLevel;
   thumbId?: string;
+  mediaType?: 'photo' | 'video';
   isContested?: boolean;
   contestedDistricts?: string[];
 }
@@ -81,6 +88,11 @@ export interface ThumbnailRecord {
   groupKey: string;
   dataUrl: string;
   takenAt: string;
+}
+
+export interface PhotoThumbRecord {
+  id: string;
+  dataUrl: string;
 }
 
 export type MarkType = 'visited_manual' | 'wishlist' | 'home' | 'sight_confirmed' | 'sight_rejected';

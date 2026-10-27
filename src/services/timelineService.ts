@@ -819,7 +819,7 @@ export function drawYearRecapCanvas(canvas: HTMLCanvasElement, recap: YearRecap)
 
   ctx.fillStyle = accent;
   ctx.font = `bold 24px ${fontFamily}`;
-  ctx.fillText('КАРТА ПУТЕШЕСТВИЙ', 64, 96);
+  ctx.fillText('СЛЕДОПЫТ', 64, 96);
 
   ctx.fillStyle = text;
   ctx.font = `900 68px ${fontFamily}`;

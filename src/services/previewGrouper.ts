@@ -23,3 +23,37 @@ export function groupPhotosForPreviews<T extends GroupCandidate>(items: T[]): Ma
   }
   return groups;
 }
+
+export interface PhotoClusterGroup<T> {
+  key: string;
+  photos: T[];
+  primary: T;
+  count: number;
+  thumbId?: string;
+}
+
+export function groupPhotosByClusterKey<T extends { id: string; takenAt: string; thumbId?: string; districtId?: string; regionId?: string; lat?: number; lon?: number }>(
+  photos: T[]
+): PhotoClusterGroup<T>[] {
+  const map = new Map<string, PhotoClusterGroup<T>>();
+  const sorted = [...photos].sort((a, b) => b.takenAt.localeCompare(a.takenAt));
+  for (const p of sorted) {
+    const key = p.thumbId || `${p.takenAt.slice(0, 10)}|${p.districtId || p.regionId || 'unknown'}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.photos.push(p);
+      existing.count++;
+    } else {
+      map.set(key, {
+        key,
+        photos: [p],
+        primary: p,
+        count: 1,
+        thumbId: p.thumbId
+      });
+    }
+  }
+  const groups = [...map.values()];
+  for (const g of groups) g.photos.reverse();
+  return groups;
+}

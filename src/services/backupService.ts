@@ -1,5 +1,5 @@
 import { db } from './db';
-import type { PhotoRecord, ThumbnailRecord, MarkRecord, UnlockedAchievementRecord, UserSettings } from '../types';
+import type { PhotoRecord, ThumbnailRecord, PhotoThumbRecord, MarkRecord, UnlockedAchievementRecord, UserSettings } from '../types';
 
 export interface BackupData {
   version: string;
@@ -7,6 +7,7 @@ export interface BackupData {
   includesThumbs?: boolean;
   photos: PhotoRecord[];
   thumbs?: ThumbnailRecord[];
+  photoThumbs?: PhotoThumbRecord[];
   marks: MarkRecord[];
   achievements: UnlockedAchievementRecord[];
   settings?: UserSettings;
@@ -26,20 +27,22 @@ export interface CreateBackupOptions {
 export async function createBackup(options: CreateBackupOptions = { includeThumbs: true }): Promise<BackupData> {
   const includeThumbs = options.includeThumbs ?? true;
 
-  const [photos, thumbs, marks, achievements, settings] = await Promise.all([
+  const [photos, thumbs, photoThumbs, marks, achievements, settings] = await Promise.all([
     db.photos.toArray(),
     includeThumbs ? db.thumbs.toArray() : Promise.resolve([]),
+    includeThumbs ? db.photoThumbs.toArray() : Promise.resolve([]),
     db.marks.toArray(),
     db.achievements.toArray(),
     db.settings.get('default')
   ]);
 
   return {
-    version: '1.4.0',
+    version: '1.7.0',
     exportedAt: new Date().toISOString(),
     includesThumbs: includeThumbs,
     photos,
     thumbs,
+    photoThumbs,
     marks,
     achievements,
     settings
@@ -49,7 +52,7 @@ export async function createBackup(options: CreateBackupOptions = { includeThumb
 export function serializeBackupToBlob(backup: BackupData): Blob {
   const parts: string[] = [];
 
-  parts.push('{"version":' + JSON.stringify(backup.version || '1.4.0'));
+  parts.push('{"version":' + JSON.stringify(backup.version || '1.7.0'));
   parts.push(',"exportedAt":' + JSON.stringify(backup.exportedAt || new Date().toISOString()));
   if (backup.includesThumbs !== undefined) {
     parts.push(',"includesThumbs":' + JSON.stringify(backup.includesThumbs));
@@ -71,6 +74,7 @@ export function serializeBackupToBlob(backup: BackupData): Blob {
 
   appendArray('photos', backup.photos || []);
   appendArray('thumbs', backup.thumbs || []);
+  appendArray('photoThumbs', backup.photoThumbs || []);
   appendArray('marks', backup.marks || []);
   appendArray('achievements', backup.achievements || []);
 
@@ -114,11 +118,18 @@ export async function mergeBackup(backup: BackupData): Promise<MergeResult> {
   let addedMarks = 0;
   let addedAchievements = 0;
 
-  await db.transaction('rw', [db.photos, db.thumbs, db.marks, db.achievements, db.settings], async () => {
+  await db.transaction('rw', [db.photos, db.thumbs, db.photoThumbs, db.marks, db.achievements, db.settings], async () => {
     for (const thumb of backup.thumbs || []) {
       const existing = await db.thumbs.get(thumb.id);
-      if (!existing) {
+      if (!existing && thumb.dataUrl) {
         await db.thumbs.put(thumb);
+      }
+    }
+
+    for (const pt of backup.photoThumbs || []) {
+      const existing = await db.photoThumbs.get(pt.id);
+      if (!existing && pt.dataUrl) {
+        await db.photoThumbs.put(pt);
       }
     }
 

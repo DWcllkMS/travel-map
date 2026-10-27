@@ -1,9 +1,10 @@
 import Dexie, { type Table } from 'dexie';
-import type { PhotoRecord, ThumbnailRecord, MarkRecord, UnlockedAchievementRecord, UserSettings } from '../types';
+import type { PhotoRecord, ThumbnailRecord, PhotoThumbRecord, MarkRecord, UnlockedAchievementRecord, UserSettings } from '../types';
 
 export class TravelMapDatabase extends Dexie {
   photos!: Table<PhotoRecord, string>;
   thumbs!: Table<ThumbnailRecord, string>;
+  photoThumbs!: Table<PhotoThumbRecord, string>;
   marks!: Table<MarkRecord, string>;
   achievements!: Table<UnlockedAchievementRecord, string>;
   settings!: Table<UserSettings, string>;
@@ -20,6 +21,14 @@ export class TravelMapDatabase extends Dexie {
     this.version(2).stores({
       photos: 'id, districtId, regionId, country, takenAt, proof, h3, thumbId',
       thumbs: 'id, groupKey, takenAt',
+      marks: 'id, targetId, targetType, markType, country',
+      achievements: 'id, unlockedAt',
+      settings: 'id'
+    });
+    this.version(3).stores({
+      photos: 'id, districtId, regionId, country, takenAt, proof, h3, thumbId',
+      thumbs: 'id, groupKey, takenAt',
+      photoThumbs: 'id',
       marks: 'id, targetId, targetType, markType, country',
       achievements: 'id, unlockedAt',
       settings: 'id'
@@ -60,4 +69,21 @@ export async function updateSettings(partial: Partial<UserSettings>): Promise<Us
   const updated: UserSettings = { ...current, ...partial };
   await db.settings.put(updated);
   return updated;
+}
+
+export async function clearAllData(): Promise<void> {
+  await Promise.all([
+    db.photos.clear(),
+    db.thumbs.clear(),
+    db.photoThumbs.clear(),
+    db.marks.clear(),
+    db.achievements.clear()
+  ]);
+}
+
+export async function deletePhoto(id: string): Promise<void> {
+  await Promise.all([
+    db.photos.delete(id),
+    db.photoThumbs.delete(id)
+  ]);
 }

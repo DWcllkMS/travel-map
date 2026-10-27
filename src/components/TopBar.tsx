@@ -1,6 +1,7 @@
 import React from 'react';
 import { History } from 'lucide-react';
 import type { UserLevelInfo } from '../types';
+import { AppLogo } from './AppLogo';
 
 export interface MapFilters {
   visited: boolean;
@@ -38,18 +39,25 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   return (
     <div className="topbar-container">
-      <div className="level-widget" onClick={onOpenLevelDetails} role="button" tabIndex={0}>
-        <div className="level-badge">Ур. {levelInfo.level}</div>
-        <div className="level-details">
-          <div className="rank-name">{levelInfo.rank}</div>
-          <div className="xp-bar-container">
-            <div
-              className="xp-bar-fill"
-              style={{ width: `${levelInfo.progressPercent}%` }}
-            />
-          </div>
+      <div className="topbar-left">
+        <div className="topbar-brand">
+          <AppLogo size={20} />
+          <span className="brand-name">Следопыт</span>
         </div>
-        <div className="xp-text">{levelInfo.currentXp} XP</div>
+
+        <div className="level-widget" onClick={onOpenLevelDetails} role="button" tabIndex={0}>
+          <div className="level-badge">Ур. {levelInfo.level}</div>
+          <div className="level-details">
+            <div className="rank-name">{levelInfo.rank}</div>
+            <div className="xp-bar-container">
+              <div
+                className="xp-bar-fill"
+                style={{ width: `${levelInfo.progressPercent}%` }}
+              />
+            </div>
+          </div>
+          <div className="xp-text">{levelInfo.currentXp} XP</div>
+        </div>
       </div>
 
       <div className="filter-chips">
@@ -118,15 +126,51 @@ export const TopBar: React.FC<TopBarProps> = ({
           pointer-events: none;
         }
 
+        .topbar-left {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          pointer-events: auto;
+          flex-shrink: 0;
+        }
+
+        .topbar-brand {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          background: var(--bg-2);
+          border: 1px solid var(--border);
+          padding: 6px 12px;
+          border-radius: var(--radius);
+          box-shadow: 0 4px 16px color-mix(in srgb, var(--bg) 60%, transparent);
+          color: var(--text);
+          backdrop-filter: blur(8px);
+          white-space: nowrap;
+          line-height: 1;
+        }
+
+        @media (min-width: 768px) {
+          .topbar-brand {
+            display: none;
+          }
+        }
+
+        .brand-name {
+          font-weight: 700;
+          font-size: 13px;
+          color: var(--text);
+          line-height: 1;
+        }
+
         .level-widget {
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 8px;
           background: var(--bg-2);
           border: 1px solid var(--border);
-          padding: 6px 14px;
+          padding: 6px 12px;
           border-radius: var(--radius);
-          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+          box-shadow: 0 4px 16px color-mix(in srgb, var(--bg) 60%, transparent);
           pointer-events: auto;
           cursor: pointer;
           backdrop-filter: blur(8px);
@@ -136,10 +180,10 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         .level-badge {
           background: var(--accent);
-          color: var(--text);
+          color: var(--on-accent);
           font-weight: 700;
-          font-size: 12px;
-          padding: 3px 8px;
+          font-size: 11px;
+          padding: 3px 6px;
           border-radius: var(--radius-sm);
         }
 
@@ -157,7 +201,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         }
 
         .xp-bar-container {
-          width: 90px;
+          width: 72px;
           height: 5px;
           background: var(--bg-3);
           border-radius: 3px;
@@ -172,7 +216,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         }
 
         .xp-text {
-          font-size: 11px;
+          font-size: 10px;
           color: var(--muted);
           font-weight: 500;
         }
@@ -200,7 +244,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           font-size: 12px;
           font-weight: 500;
           white-space: nowrap;
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+          box-shadow: 0 2px 8px color-mix(in srgb, var(--bg) 40%, transparent);
           transition: background var(--transition), color var(--transition), border-color var(--transition);
         }
 
@@ -260,11 +304,14 @@ export const TopBar: React.FC<TopBarProps> = ({
             align-items: stretch;
             gap: 8px;
           }
+          .topbar-left {
+            justify-content: space-between;
+          }
           .filter-chips {
             justify-content: flex-start;
           }
           .xp-bar-container {
-            width: 70px;
+            width: 60px;
           }
         }
       `}</style>

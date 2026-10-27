@@ -255,3 +255,75 @@ function blobToDataUrl(blob: Blob): Promise<string> {
     reader.readAsDataURL(blob);
   });
 }
+
+
+export async function buildVideoThumbnail(file: File | Blob): Promise<string | undefined> {
+  if (typeof document === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL === 'undefined') {
+    return undefined;
+  }
+  let objectUrl: string | undefined;
+  try {
+    objectUrl = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'metadata';
+
+    const capture = new Promise<string>((resolve, reject) => {
+      let settled = false;
+      const cleanup = () => {
+        video.removeEventListener('loadedmetadata', onLoaded);
+        video.removeEventListener('seeked', onSeeked);
+        video.removeEventListener('error', onError);
+      };
+      const onLoaded = () => {
+        const dur = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 1;
+        const target = Math.min(0.5, dur * 0.1);
+        video.currentTime = Math.max(0, target);
+      };
+      const onSeeked = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        try {
+          const vw = video.videoWidth || 320;
+          const vh = video.videoHeight || 180;
+          const aspect = vh / vw;
+          const canvas = document.createElement('canvas');
+          canvas.width = 320;
+          canvas.height = Math.max(1, Math.round(320 * aspect));
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Canvas 2D context unavailable'));
+            return;
+          }
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', 0.7));
+        } catch (err) {
+          reject(err);
+        }
+      };
+      const onError = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error('Video load failed'));
+      };
+
+      video.addEventListener('loadedmetadata', onLoaded, { once: true });
+      video.addEventListener('seeked', onSeeked, { once: true });
+      video.addEventListener('error', onError, { once: true });
+      video.src = objectUrl!;
+    });
+
+    return await withTimeout(capture, 10000, 'Превью видео');
+  } catch {
+    return undefined;
+  } finally {
+    if (objectUrl) {
+      try {
+        URL.revokeObjectURL(objectUrl);
+      } catch {}
+    }
+  }
+}

@@ -462,6 +462,10 @@ export const App: React.FC = () => {
         dataUrl: photo.dataUrl,
         takenAt: photo.takenAt || new Date().toISOString()
       });
+      await db.photoThumbs.put({
+        id: photo.id,
+        dataUrl: photo.dataUrl
+      });
     }
 
     await db.photos.put({

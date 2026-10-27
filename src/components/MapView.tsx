@@ -75,7 +75,12 @@ export const MapView: React.FC<MapViewProps> = ({
   const [selectedEntity, setSelectedEntity] = useState<SelectedEntity | null>(null);
   const [selectedSightEntity, setSelectedSightEntity] = useState<SelectedSightEntity | null>(null);
   const [photoCluster, setPhotoCluster] = useState<(PhotoClusterSelection & { center: [number, number]; zoom: number }) | null>(null);
-  const [selectedPhotoModal, setSelectedPhotoModal] = useState<{ photo?: PhotoRecord; thumb?: ThumbnailRecord } | null>(null);
+  const [selectedPhotoModal, setSelectedPhotoModal] = useState<{
+    photo?: PhotoRecord;
+    thumb?: ThumbnailRecord;
+    photos?: PhotoRecord[];
+    initialIndex?: number;
+  } | null>(null);
 
   const [timelapseActive, setTimelapseActive] = useState(false);
   const timelapseActiveRef = useRef(timelapseActive);
@@ -1081,12 +1086,14 @@ export const MapView: React.FC<MapViewProps> = ({
           }
           setPhotoCluster(null);
         }}
-        onSelectPhoto={(photo, thumb) => setSelectedPhotoModal({ photo, thumb })}
+        onSelectPhoto={(photo, thumb, photos, index) => setSelectedPhotoModal({ photo, thumb, photos, initialIndex: index })}
       />
 
       <PhotoDetailModal
         photo={selectedPhotoModal?.photo}
         thumb={selectedPhotoModal?.thumb}
+        photos={selectedPhotoModal?.photos}
+        initialIndex={selectedPhotoModal?.initialIndex}
         onClose={() => setSelectedPhotoModal(null)}
       />
 

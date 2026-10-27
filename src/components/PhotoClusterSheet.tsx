@@ -1,27 +1,23 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { X, ZoomIn, ImageOff } from 'lucide-react';
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { X, ZoomIn, ArrowLeft, Image as ImageIcon, Film } from 'lucide-react';
 import { db } from '../services/db';
 import { globalGeoIndex } from '../services/geoIndex';
 import { pluralRu } from '../services/timelineService';
+import { groupPhotosByClusterKey, type PhotoClusterGroup } from '../services/previewGrouper';
 import type { PhotoRecord, ThumbnailRecord } from '../types';
 
 export interface PhotoClusterSelection {
   photos: PhotoRecord[];
   canZoom: boolean;
+  center?: [number, number];
+  zoom?: number;
 }
 
 interface PhotoClusterSheetProps {
   selection: PhotoClusterSelection | null;
   onClose: () => void;
   onZoomIn: () => void;
-  onSelectPhoto: (photo: PhotoRecord, thumb?: ThumbnailRecord) => void;
-}
-
-interface PhotoGroup {
-  key: string;
-  photo: PhotoRecord;
-  count: number;
-  thumbId?: string;
+  onSelectPhoto: (photo: PhotoRecord, thumb?: ThumbnailRecord, photos?: PhotoRecord[], index?: number) => void;
 }
 
 const formatDay = (iso: string) => {
@@ -30,20 +26,37 @@ const formatDay = (iso: string) => {
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }).replace(' г.', '');
 };
 
-export const PhotoClusterSheet: React.FC<PhotoClusterSheetProps> = ({ selection, onClose, onZoomIn, onSelectPhoto }) => {
-  const [thumbs, setThumbs] = useState<Record<string, ThumbnailRecord>>({});
+const formatTimeOrDay = (iso: string) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+};
 
-  const groups = useMemo<PhotoGroup[]>(() => {
+const BATCH_SIZE = 60;
+
+export const PhotoClusterSheet: React.FC<PhotoClusterSheetProps> = ({
+  selection,
+  onClose,
+  onZoomIn,
+  onSelectPhoto
+}) => {
+  const [thumbs, setThumbs] = useState<Record<string, ThumbnailRecord>>({});
+  const [photoThumbs, setPhotoThumbs] = useState<Record<string, string>>({});
+  const [activeGroup, setActiveGroup] = useState<PhotoClusterGroup<PhotoRecord> | null>(null);
+  const [groupThumb, setGroupThumb] = useState<ThumbnailRecord | undefined>(undefined);
+  const [visibleCount, setVisibleCount] = useState<number>(BATCH_SIZE);
+  const [hasMissingThumbs, setHasMissingThumbs] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const groups = useMemo<PhotoClusterGroup<PhotoRecord>[]>(() => {
     if (!selection) return [];
-    const map = new Map<string, PhotoGroup>();
-    const sorted = [...selection.photos].sort((a, b) => b.takenAt.localeCompare(a.takenAt));
-    for (const p of sorted) {
-      const key = p.thumbId || `${p.takenAt.slice(0, 10)}|${p.districtId || p.regionId}`;
-      const g = map.get(key);
-      if (g) g.count++;
-      else map.set(key, { key, photo: p, count: 1, thumbId: p.thumbId });
-    }
-    return [...map.values()];
+    return groupPhotosByClusterKey(selection.photos);
+  }, [selection]);
+
+  useEffect(() => {
+    setActiveGroup(null);
+    setVisibleCount(BATCH_SIZE);
+    setPhotoThumbs({});
   }, [selection]);
 
   useEffect(() => {
@@ -63,11 +76,97 @@ export const PhotoClusterSheet: React.FC<PhotoClusterSheetProps> = ({ selection,
   }, [groups]);
 
   useEffect(() => {
+    if (!activeGroup) {
+      setGroupThumb(undefined);
+      setHasMissingThumbs(false);
+      return;
+    }
+
+    let cancelled = false;
+    setVisibleCount(Math.min(BATCH_SIZE, activeGroup.photos.length));
+
+    if (activeGroup.thumbId) {
+      db.thumbs.get(activeGroup.thumbId).then(t => {
+        if (!cancelled && t) setGroupThumb(t);
+      }).catch(() => {});
+    } else {
+      setGroupThumb(undefined);
+    }
+
+    const ids = activeGroup.photos.map(p => p.id);
+    db.photoThumbs.where('id').anyOf(ids).count().then(foundCount => {
+      if (!cancelled) {
+        setHasMissingThumbs(foundCount < activeGroup.photos.length);
+      }
+    }).catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [activeGroup]);
+
+  useEffect(() => {
+    if (!activeGroup) return;
+    let cancelled = false;
+
+    const visiblePhotos = activeGroup.photos.slice(0, visibleCount);
+    const missingIds = visiblePhotos.map(p => p.id).filter(id => !photoThumbs[id]);
+
+    if (missingIds.length === 0) return;
+
+    db.photoThumbs.bulkGet(missingIds).then(records => {
+      if (cancelled) return;
+      const updates: Record<string, string> = {};
+      for (const r of records) {
+        if (r?.id && r.dataUrl) {
+          updates[r.id] = r.dataUrl;
+        }
+      }
+      if (Object.keys(updates).length > 0) {
+        setPhotoThumbs(prev => ({ ...prev, ...updates }));
+      }
+    }).catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [activeGroup, visibleCount, photoThumbs]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ id: string; type?: string; dataUrl: string }>).detail;
+      if (!detail) return;
+      if (detail.type === 'photo') {
+        setPhotoThumbs(prev => ({ ...prev, [detail.id]: detail.dataUrl }));
+      } else {
+        setThumbs(prev => {
+          if (!prev[detail.id]) return prev;
+          return { ...prev, [detail.id]: { ...prev[detail.id], dataUrl: detail.dataUrl } };
+        });
+        setGroupThumb(prev => prev && prev.id === detail.id ? { ...prev, dataUrl: detail.dataUrl } : prev);
+      }
+    };
+    window.addEventListener('thumb-updated', handler);
+    return () => window.removeEventListener('thumb-updated', handler);
+  }, []);
+
+  useEffect(() => {
     if (!selection) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (activeGroup) setActiveGroup(null);
+        else onClose();
+      }
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selection, onClose]);
+  }, [selection, activeGroup, onClose]);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || !activeGroup) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 300) {
+      if (visibleCount < activeGroup.photos.length) {
+        setVisibleCount(prev => Math.min(prev + BATCH_SIZE, activeGroup.photos.length));
+      }
+    }
+  }, [activeGroup, visibleCount]);
 
   if (!selection) return null;
 
@@ -79,54 +178,165 @@ export const PhotoClusterSheet: React.FC<PhotoClusterSheetProps> = ({ selection,
   const regionNames = regionIds.slice(0, 2).map(id => globalGeoIndex.getRegionById(id)?.name || id);
   const placeLine = regionNames.join(', ') + (regionIds.length > 2 ? ` и ещё ${regionIds.length - 2}` : '');
 
+  const renderGroupTile = (g: PhotoClusterGroup<PhotoRecord>) => {
+    const t = g.thumbId ? thumbs[g.thumbId] : undefined;
+    const pThumb = photoThumbs[g.primary.id];
+    const imgUrl = t?.dataUrl || pThumb;
+    const isVideo = g.primary.mediaType === 'video';
+
+    return (
+      <button
+        type="button"
+        key={g.key}
+        className="pcs-item"
+        onClick={() => {
+          if (g.count > 1) {
+            setActiveGroup(g);
+          } else {
+            onSelectPhoto(g.primary, t, g.photos, 0);
+          }
+        }}
+      >
+        {imgUrl ? (
+          <img src={imgUrl} alt="" loading="lazy" />
+        ) : isVideo ? (
+          <span className="pcs-placeholder">
+            <Film size={20} />
+            <span className="pcs-tag">Видео</span>
+          </span>
+        ) : (
+          <span className="pcs-placeholder">
+            <ImageIcon size={20} />
+          </span>
+        )}
+        {g.count > 1 && <span className="pcs-count">{g.count}</span>}
+        <span className="pcs-date">{formatDay(g.primary.takenAt)}</span>
+      </button>
+    );
+  };
+
+  const renderActiveGroup = () => {
+    if (!activeGroup) return null;
+    const visiblePhotos = activeGroup.photos.slice(0, visibleCount);
+    const groupPlace = globalGeoIndex.getRegionById(activeGroup.primary.regionId)?.name || activeGroup.primary.regionId;
+
+    return (
+      <>
+        <div className="pcs-header">
+          <div className="pcs-header-left">
+            <button
+              type="button"
+              className="pcs-btn pcs-back-btn"
+              onClick={() => setActiveGroup(null)}
+              aria-label="Назад к группам"
+            >
+              <ArrowLeft size={16} />
+              <span>Назад</span>
+            </button>
+            <div className="pcs-titles">
+              <h2 className="pcs-title">
+                {pluralRu(activeGroup.count, 'фото', 'фото', 'фото')}
+              </h2>
+              <p className="pcs-subtitle">
+                {formatDay(activeGroup.primary.takenAt)} · {groupPlace}
+              </p>
+            </div>
+          </div>
+          <button type="button" className="pcs-icon-btn" onClick={onClose} aria-label="Закрыть">
+            <X size={18} />
+          </button>
+        </div>
+
+        {hasMissingThumbs && (
+          <div className="pcs-hint">
+            Превью есть не у всех снимков — загрузите эти фото ещё раз, дубли не появятся
+          </div>
+        )}
+
+        <div className="pcs-scroll custom-scrollbar" ref={scrollRef} onScroll={handleScroll}>
+          <div className="pcs-grid">
+            {visiblePhotos.map((photo, idx) => {
+              const url = photoThumbs[photo.id];
+              const isVideo = photo.mediaType === 'video';
+
+              return (
+                <button
+                  type="button"
+                  key={photo.id}
+                  className="pcs-item"
+                  onClick={() => onSelectPhoto(photo, groupThumb, activeGroup.photos, idx)}
+                >
+                  {url ? (
+                    <img src={url} alt="" loading="lazy" />
+                  ) : isVideo ? (
+                    <span className="pcs-placeholder">
+                      <Film size={20} />
+                      <span className="pcs-tag">Видео</span>
+                    </span>
+                  ) : (
+                    <span className="pcs-placeholder">
+                      <ImageIcon size={20} />
+                    </span>
+                  )}
+                  <span className="pcs-date">{formatTimeOrDay(photo.takenAt)}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {visibleCount < activeGroup.photos.length && (
+            <div className="pcs-more-wrap">
+              <button
+                type="button"
+                className="pcs-btn"
+                onClick={() => setVisibleCount(c => Math.min(c + BATCH_SIZE, activeGroup.photos.length))}
+              >
+                Показать ещё
+              </button>
+            </div>
+          )}
+        </div>
+      </>
+    );
+  };
+
   return (
     <div className="pcs-backdrop" onClick={onClose}>
       <div className="pcs-card" onClick={e => e.stopPropagation()} role="dialog" aria-label="Фото в этом месте">
         <div className="pcs-handle" />
-        <div className="pcs-header">
-          <div className="pcs-titles">
-            <h2 className="pcs-title">{pluralRu(total, 'фото', 'фото', 'фото')}</h2>
-            <p className="pcs-subtitle">
-              {placeLine}
-              {first && <> · {first === last ? first : `${first} — ${last}`}</>}
-            </p>
-          </div>
-          <div className="pcs-header-actions">
-            {selection.canZoom && (
-              <button type="button" className="pcs-btn" onClick={onZoomIn}>
-                <ZoomIn size={16} />
-                <span>Приблизить</span>
-              </button>
-            )}
-            <button type="button" className="pcs-icon-btn" onClick={onClose} aria-label="Закрыть">
-              <X size={18} />
-            </button>
-          </div>
-        </div>
 
-        <div className="pcs-scroll custom-scrollbar">
-          <div className="pcs-grid">
-          {groups.map(g => {
-            const t = g.thumbId ? thumbs[g.thumbId] : undefined;
-            return (
-              <button
-                type="button"
-                key={g.key}
-                className="pcs-item"
-                onClick={() => onSelectPhoto(g.photo, t)}
-              >
-                {t ? (
-                  <img src={t.dataUrl} alt="" loading="lazy" />
-                ) : (
-                  <span className="pcs-noimg"><ImageOff size={18} /></span>
+        {!activeGroup ? (
+          <>
+            <div className="pcs-header">
+              <div className="pcs-titles">
+                <h2 className="pcs-title">{pluralRu(total, 'фото', 'фото', 'фото')}</h2>
+                <p className="pcs-subtitle">
+                  {placeLine}
+                  {first && <> · {first === last ? first : `${first} — ${last}`}</>}
+                </p>
+              </div>
+              <div className="pcs-header-actions">
+                {selection.canZoom && (
+                  <button type="button" className="pcs-btn" onClick={onZoomIn}>
+                    <ZoomIn size={16} />
+                    <span>Приблизить</span>
+                  </button>
                 )}
-                {g.count > 1 && <span className="pcs-count">{g.count}</span>}
-                <span className="pcs-date">{formatDay(g.photo.takenAt)}</span>
-              </button>
-            );
-          })}
-          </div>
-        </div>
+                <button type="button" className="pcs-icon-btn" onClick={onClose} aria-label="Закрыть">
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="pcs-scroll custom-scrollbar">
+              <div className="pcs-grid">
+                {groups.map(renderGroupTile)}
+              </div>
+            </div>
+          </>
+        ) : (
+          renderActiveGroup()
+        )}
       </div>
 
       <style>{`
@@ -155,6 +365,7 @@ export const PhotoClusterSheet: React.FC<PhotoClusterSheetProps> = ({ selection,
           box-shadow: 0 -8px 32px color-mix(in srgb, var(--bg) 70%, transparent);
           animation: pcsUp 0.22s cubic-bezier(0.2, 0, 0, 1);
           min-width: 0;
+          overflow: hidden;
         }
 
         @keyframes pcsUp {
@@ -168,6 +379,7 @@ export const PhotoClusterSheet: React.FC<PhotoClusterSheetProps> = ({ selection,
           border-radius: 999px;
           background: var(--border);
           align-self: center;
+          flex-shrink: 0;
         }
 
         .pcs-header {
@@ -176,6 +388,20 @@ export const PhotoClusterSheet: React.FC<PhotoClusterSheetProps> = ({ selection,
           justify-content: space-between;
           gap: 0.75rem;
           min-width: 0;
+          flex-shrink: 0;
+        }
+
+        .pcs-header-left {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          min-width: 0;
+          flex: 1;
+        }
+
+        .pcs-back-btn {
+          padding: 0 0.625rem;
+          flex-shrink: 0;
         }
 
         .pcs-titles {
@@ -183,6 +409,7 @@ export const PhotoClusterSheet: React.FC<PhotoClusterSheetProps> = ({ selection,
           flex-direction: column;
           gap: 0.125rem;
           min-width: 0;
+          flex: 1;
         }
 
         .pcs-title {
@@ -190,12 +417,28 @@ export const PhotoClusterSheet: React.FC<PhotoClusterSheetProps> = ({ selection,
           font-weight: 700;
           line-height: 1.25;
           color: var(--text);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .pcs-subtitle {
           font-size: 0.8125rem;
           color: var(--muted);
-          overflow-wrap: anywhere;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .pcs-hint {
+          background: var(--bg-3);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-sm);
+          padding: 0.5rem 0.75rem;
+          font-size: 0.75rem;
+          color: var(--muted);
+          line-height: 1.4;
+          flex-shrink: 0;
         }
 
         .pcs-header-actions {
@@ -218,6 +461,7 @@ export const PhotoClusterSheet: React.FC<PhotoClusterSheetProps> = ({ selection,
           font-size: 0.8125rem;
           font-weight: 600;
           white-space: nowrap;
+          cursor: pointer;
         }
 
         .pcs-btn:hover {
@@ -232,6 +476,10 @@ export const PhotoClusterSheet: React.FC<PhotoClusterSheetProps> = ({ selection,
           height: 2.25rem;
           border-radius: var(--radius-sm);
           color: var(--muted);
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          flex-shrink: 0;
         }
 
         .pcs-icon-btn:hover {
@@ -262,6 +510,7 @@ export const PhotoClusterSheet: React.FC<PhotoClusterSheetProps> = ({ selection,
           background: var(--bg-3);
           border: 1px solid var(--border);
           padding: 0;
+          cursor: pointer;
         }
 
         .pcs-item img {
@@ -271,12 +520,20 @@ export const PhotoClusterSheet: React.FC<PhotoClusterSheetProps> = ({ selection,
           display: block;
         }
 
-        .pcs-noimg {
+        .pcs-placeholder {
           position: absolute;
           inset: 0;
           display: flex;
+          flex-direction: column;
           align-items: center;
           justify-content: center;
+          gap: 0.25rem;
+          color: var(--muted);
+        }
+
+        .pcs-tag {
+          font-size: 0.625rem;
+          font-weight: 600;
           color: var(--muted);
         }
 
@@ -311,6 +568,12 @@ export const PhotoClusterSheet: React.FC<PhotoClusterSheetProps> = ({ selection,
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+        }
+
+        .pcs-more-wrap {
+          display: flex;
+          justify-content: center;
+          padding: 0.75rem 0;
         }
 
         @media (min-width: 768px) {

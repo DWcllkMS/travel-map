@@ -33,7 +33,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [thumbsCount, setThumbsCount] = useState<number | null>(null);
 
   const refreshThumbsCount = () => {
-    db.thumbs.count().then(count => setThumbsCount(count)).catch(() => {});
+    Promise.all([db.thumbs.count(), db.photoThumbs.count()]).then(([gCount, pCount]) => setThumbsCount(gCount + pCount)).catch(() => {});
   };
 
   useEffect(() => {

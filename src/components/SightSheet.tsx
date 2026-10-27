@@ -46,6 +46,12 @@ const KIND_NAMES: Record<SightKind, string> = {
   park: 'Заповедник / нацпарк',
   bridge: 'Мост',
   lighthouse: 'Маяк',
+  theatre: 'Театр',
+  cave: 'Пещера',
+  waterfall: 'Водопад',
+  viewpoint: 'Смотровая площадка',
+  garden: 'Ботанический сад',
+  zoo: 'Зоопарк',
   other: 'Достопримечательность'
 };
 

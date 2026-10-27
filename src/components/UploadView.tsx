@@ -1,12 +1,12 @@
 import React, { useState, useRef } from 'react';
 import { UploadCloud, Award, AlertTriangle, Image as ImageIcon, FolderOpen } from 'lucide-react';
-import { extractPhotoMetadata, withTimeout, isValidCoordinate } from '../services/exif';
+import { extractPhotoMetadata, withTimeout, isValidCoordinate, buildVideoThumbnail } from '../services/exif';
 import { parseMp4File } from '../services/videoParser';
 import { computeGroupKey } from '../services/previewGrouper';
 import { latLngToCell } from 'h3-js';
 import { db } from '../services/db';
 import { globalGeoIndex } from '../services/geoIndex';
-import type { PhotoRecord, ThumbnailRecord, GeoDistrict } from '../types';
+import type { PhotoRecord, ThumbnailRecord, PhotoThumbRecord, GeoDistrict } from '../types';
 import type { UnlocatedPhotoItem } from './SilverVerificationModal';
 
 interface ContestedItem {
@@ -66,6 +66,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
     seenGroupKeys: Map<string, string>,
     pendingPhotos: PhotoRecord[],
     pendingThumbs: ThumbnailRecord[],
+    pendingPhotoThumbs: PhotoThumbRecord[],
     pendingUnlocated: UnlocatedPhotoItem[],
     pendingContested: ContestedItem[],
     redactedCounter: { count: number },
@@ -86,6 +87,11 @@ export const UploadView: React.FC<UploadViewProps> = ({
       lon = meta.lon;
       alt = meta.alt;
       takenAt = meta.takenAt;
+      try {
+        thumbUrl = await buildVideoThumbnail(file);
+      } catch {
+        thumbUrl = undefined;
+      }
     } else {
       const meta = await extractPhotoMetadata(file);
       lat = meta.lat;
@@ -134,6 +140,10 @@ export const UploadView: React.FC<UploadViewProps> = ({
             dataUrl: thumbUrl,
             takenAt
           });
+          pendingPhotoThumbs.push({
+            id: matchExisting.id,
+            dataUrl: thumbUrl
+          });
           updatedThumbsCounter.count++;
         }
         return;
@@ -144,6 +154,10 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
       let thumbId: string | undefined;
       if (thumbUrl) {
+        pendingPhotoThumbs.push({
+          id: photoId,
+          dataUrl: thumbUrl
+        });
         if (!seenGroupKeys.has(groupKey)) {
           thumbId = `thumb-${Date.now()}-${index}`;
           seenGroupKeys.set(groupKey, thumbId);
@@ -186,6 +200,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
         h3: h3Cell,
         proof: 'gold',
         thumbId,
+        mediaType: isVideo ? 'video' : 'photo',
         isContested: match.isContested,
         contestedDistricts: match.contestedDistricts?.map(d => d.id)
       });
@@ -222,6 +237,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
     const seenGroupKeys = new Map<string, string>();
     const pendingPhotos: PhotoRecord[] = [];
     const pendingThumbs: ThumbnailRecord[] = [];
+    const pendingPhotoThumbs: PhotoThumbRecord[] = [];
     const pendingUnlocated: UnlocatedPhotoItem[] = [];
     const pendingContested: ContestedItem[] = [];
     const failed: FailedFile[] = [];
@@ -251,6 +267,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
             seenGroupKeys,
             pendingPhotos,
             pendingThumbs,
+            pendingPhotoThumbs,
             pendingUnlocated,
             pendingContested,
             redactedCounter,
@@ -271,9 +288,12 @@ export const UploadView: React.FC<UploadViewProps> = ({
       await Promise.all(workers);
 
       await withTimeout(
-        db.transaction('rw', [db.photos, db.thumbs], async () => {
+        db.transaction('rw', [db.photos, db.thumbs, db.photoThumbs], async () => {
           if (pendingThumbs.length > 0) {
             await db.thumbs.bulkPut(pendingThumbs);
+          }
+          if (pendingPhotoThumbs.length > 0) {
+            await db.photoThumbs.bulkPut(pendingPhotoThumbs);
           }
           if (pendingPhotos.length > 0) {
             await db.photos.bulkPut(pendingPhotos);
@@ -293,7 +313,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
         withGps: pendingPhotos.length,
         withoutGps: pendingUnlocated.length,
         contested: pendingContested.length,
-        newThumbs: pendingThumbs.length,
+        newThumbs: pendingPhotoThumbs.length,
         gpsRedacted: redactedCounter.count,
         updatedThumbs: updatedThumbsCounter.count
       });
